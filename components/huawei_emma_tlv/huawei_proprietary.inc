@@ -1551,9 +1551,10 @@ static inline std::string hp_decode_0x41_frame(const std::vector<uint8_t> &bytes
              expected_entries, current_entries[i].c_str());
   }
   hp_publish_dirty_tag_values();
+  const uint8_t device_id = bytes[p];
   const bool is_heartbeat =
       subfunction == HP_FC41_SUBFN_CURRENT_DATA && payload_end - payload_start == 1;
-  if (!is_heartbeat) {
+  if (!is_heartbeat && device_id == 0x0C) {
     std::string export_frame = summary;
     if (subfunction == HP_FC41_SUBFN_CURRENT_DATA) {
       for (const std::string &entry : current_entries) {
@@ -1561,6 +1562,8 @@ static inline std::string hp_decode_0x41_frame(const std::vector<uint8_t> &bytes
         export_frame += entry;
       }
     }
+    export_frame += " | raw=";
+    export_frame += hp_hex_slice(bytes, p, bounded_end - p);
     id(huawei41_decoded_frame_export).publish_state(export_frame);
   }
   if (subfunction == HP_FC41_SUBFN_CURRENT_DATA || subfunction == HP_FC41_SUBFN_REPORT) {
