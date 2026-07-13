@@ -1,6 +1,0 @@
-# Deprecated compatibility package.
-#
-# Direct HTTP export was removed because synchronous HTTPS/DNS requests can
-# delay UART processing. Decoded data is now exposed through the public
-# `Huawei FC41 Decoded Frame` text sensor for Home Assistant to forward.
-substitutions: {}
