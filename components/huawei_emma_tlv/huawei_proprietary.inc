@@ -391,28 +391,6 @@ static inline void hp_publish_optional_text_sensor(const char *entity_name, cons
   }
 }
 
-static inline void hp_publish_fc41_frame_to_mqtt(const std::string &summary,
-                                                  const std::string &export_tags,
-                                                  const std::vector<uint8_t> &bytes, size_t p,
-                                                  size_t bounded_end) {
-#ifdef USE_MQTT
-  if (global_mqtt_client != nullptr) {
-    std::string json_payload = "{\"state\":\"" + summary +
-                               "\",\"tags\":\"" +
-                               (export_tags.empty() ? "(none)" : export_tags) +
-                               "\",\"raw\":\"" +
-                               hp_hex_slice(bytes, p, bounded_end - p) + "\"}";
-    global_mqtt_client->publish("huawei-emma-rs485/fc41_frame", json_payload);
-  }
-#else
-  (void) summary;
-  (void) export_tags;
-  (void) bytes;
-  (void) p;
-  (void) bounded_end;
-#endif
-}
-
 static inline void hp_publish_unknown_tag_page(size_t page, const std::string &value) {
   char entity_name[48];
   snprintf(entity_name, sizeof(entity_name), "Unknown FC41 Device Tags %u", static_cast<unsigned>(page + 1));
@@ -573,6 +551,28 @@ static inline void hp_log_hex_chunks(const std::vector<uint8_t> &bytes, size_t s
     ESP_LOGI(HUAWEI_PROP_TAG, "  %s[%u..%u]=%s", label, static_cast<unsigned>(pos - start),
              static_cast<unsigned>(pos - start + chunk_len - 1), hp_hex_slice(bytes, pos, chunk_len).c_str());
   }
+}
+
+static inline void hp_publish_fc41_frame_to_mqtt(const std::string &summary,
+                                                  const std::string &export_tags,
+                                                  const std::vector<uint8_t> &bytes, size_t p,
+                                                  size_t bounded_end) {
+#ifdef USE_MQTT
+  if (global_mqtt_client != nullptr) {
+    std::string json_payload = "{\"state\":\"" + summary +
+                               "\",\"tags\":\"" +
+                               (export_tags.empty() ? "(none)" : export_tags) +
+                               "\",\"raw\":\"" +
+                               hp_hex_slice(bytes, p, bounded_end - p) + "\"}";
+    global_mqtt_client->publish("huawei-emma-rs485/fc41_frame", json_payload);
+  }
+#else
+  (void) summary;
+  (void) export_tags;
+  (void) bytes;
+  (void) p;
+  (void) bounded_end;
+#endif
 }
 
 static inline const char *hp_subfunction_name(uint8_t subfunction) {
