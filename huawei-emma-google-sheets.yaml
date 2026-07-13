@@ -1,36 +1,6 @@
-substitutions:
-  # Resolve !secret in the user's main device YAML and override this value.
-  huawei_google_sheets_url: ""
-  huawei_google_sheets_min_interval: 1s
-
-http_request:
-  useragent: esphome/rs485-logger
-  timeout: 10s
-  # Certificate verification is disabled to avoid bundling CA certificates on
-  # small ESP32 builds. The request is encrypted but the server is not verified.
-  verify_ssl: false
-
-text_sensor:
-  - id: !extend huawei41_decoded_frame_export
-    on_value:
-      then:
-        - script.execute:
-            id: huawei_google_sheets_post
-            frame: !lambda |-
-              return x;
-
-script:
-  - id: huawei_google_sheets_post
-    mode: single
-    parameters:
-      frame: string
-    then:
-      - http_request.post:
-          url: ${huawei_google_sheets_url}
-          request_headers:
-            Content-Type: application/json
-          json:
-            frame: !lambda |-
-              return frame;
-      # Avoid opening a new HTTPS/DNS request for every fast RS485 frame.
-      - delay: ${huawei_google_sheets_min_interval}
+# Deprecated compatibility package.
+#
+# Direct HTTP export was removed because synchronous HTTPS/DNS requests can
+# delay UART processing. Decoded data is now exposed through the public
+# `Huawei FC41 Decoded Frame` text sensor for Home Assistant to forward.
+substitutions: {}

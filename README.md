@@ -116,66 +116,13 @@ light:
 Override `huawei_rx_light_id` if your light uses another ID, and
 `huawei_rx_light_duration` to change the default 40 ms flash.
 
-### Optional Google Sheets logging
+### Forwarding decoded frames
 
-Add the deployed Google Apps Script URL to the ESPHome `secrets.yaml` file:
-
-```yaml
-google_sheets_url: https://script.google.com/macros/s/REPLACE_ME/exec
-```
-
-Resolve that secret in the main device YAML and pass it to the remote package:
-
-```yaml
-substitutions:
-  huawei_google_sheets_url: !secret google_sheets_url
-```
-
-Then load the Sheets exporter alongside the base package:
-
-```yaml
-packages:
-  huawei_emma:
-    url: https://github.com/valexi7/Huawei-EMMA-RS485-TLV-Decoder
-    ref: main
-    files:
-      - huawei-emma-rs485.yaml
-      - huawei-emma-google-sheets.yaml
-    refresh: 1d
-```
-
-Every CRC-valid decoded FC41 frame is posted once as JSON:
-
-```json
-{"frame":"dev=12 ... | tag=0x7D5F ..."}
-```
-
-The Apps Script can write its server timestamp to the `timestamp` column and
-the JSON `frame` value to `rs485Frame`. Upload sub-functions remain opaque and
-are not exported. The optional package disables TLS certificate verification
-to save flash; traffic is encrypted, but the remote server identity is not
-verified. ESPHome HTTP actions are synchronous, so a slow Sheets endpoint can
-delay UART processing. The exporter accepts at most one request per second by
-default; override `huawei_google_sheets_min_interval` to change this diagnostic
-sampling interval, and increase the UART RX buffer if requests regularly take
-longer than the interval between frames.
-
-If ESP-IDF reports `getaddrinfo() returns 202`, the ESP32 cannot resolve the
-Google hostname through its configured DNS server. The colons around
-`:script.google.com:` in ESP-IDF's message are log delimiters, not part of the
-hostname. Check that the ESP has a valid gateway/DNS address and that its VLAN
-allows DNS. With a static address, DNS can be set explicitly in the main YAML:
-
-```yaml
-wifi:
-  # ssid/password omitted
-  manual_ip:
-    static_ip: 192.168.1.50
-    gateway: 192.168.1.1
-    subnet: 255.255.255.0
-    dns1: 1.1.1.1
-    dns2: 8.8.8.8
-```
+The public diagnostic text sensor `Huawei FC41 Decoded Frame` contains the
+latest CRC-valid decoded FC41 data frame. Use a Home Assistant state automation
+to forward its value to Google Sheets or another logging service. One-byte
+current-data heartbeats do not update the sensor, and upload sub-functions stay
+opaque and are not published to it.
 
 ## Hardware
 
@@ -219,7 +166,6 @@ the repository's local `components` directory while testing.
 
 - `huawei-emma-rs485.yaml` - reusable ESPHome sensors and UART decoder package.
 - `huawei-emma-rx-light.yaml` - optional RX activity light hook.
-- `huawei-emma-google-sheets.yaml` - optional decoded-frame HTTP exporter.
 - `components/huawei_emma_tlv/` - Git-backed parser component.
 - `esp32.yaml` - deliberately minimal device example.
 - `extras/` - inactive Modbus polling/reference helpers retained from the

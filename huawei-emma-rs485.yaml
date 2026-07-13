@@ -233,10 +233,13 @@ text_sensor:
     lambda: |-
       return std::nullopt;
 
-  # Internal event sensor used by optional exporters such as Google Sheets.
+  # Latest decoded data frame for forwarding with a Home Assistant automation.
+  # One-byte FC41 heartbeats and opaque upload frames do not update this entity.
   - platform: template
     id: huawei41_decoded_frame_export
-    internal: true
+    name: "Huawei FC41 Decoded Frame"
+    icon: mdi:code-json
+    entity_category: diagnostic
     lambda: |-
       return std::nullopt;
 

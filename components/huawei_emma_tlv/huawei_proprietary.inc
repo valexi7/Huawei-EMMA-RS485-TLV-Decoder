@@ -1551,14 +1551,18 @@ static inline std::string hp_decode_0x41_frame(const std::vector<uint8_t> &bytes
              expected_entries, current_entries[i].c_str());
   }
   hp_publish_dirty_tag_values();
-  std::string export_frame = summary;
-  if (subfunction == HP_FC41_SUBFN_CURRENT_DATA) {
-    for (const std::string &entry : current_entries) {
-      export_frame += " | ";
-      export_frame += entry;
+  const bool is_heartbeat =
+      subfunction == HP_FC41_SUBFN_CURRENT_DATA && payload_end - payload_start == 1;
+  if (!is_heartbeat) {
+    std::string export_frame = summary;
+    if (subfunction == HP_FC41_SUBFN_CURRENT_DATA) {
+      for (const std::string &entry : current_entries) {
+        export_frame += " | ";
+        export_frame += entry;
+      }
     }
+    hp_publish_optional_text_sensor("huawei41_decoded_frame_export", export_frame);
   }
-  hp_publish_optional_text_sensor("huawei41_decoded_frame_export", export_frame);
   if (subfunction == HP_FC41_SUBFN_CURRENT_DATA || subfunction == HP_FC41_SUBFN_REPORT) {
     hp_log_hex_chunks(bytes, p, bounded_end - p, "raw-frame");
   } else {
