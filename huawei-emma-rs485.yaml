@@ -1,0 +1,701 @@
+substitutions:
+  huawei_uart_rx_pin: GPIO21
+  huawei_uart_baud_rate: "9600"
+  huawei_uart_rx_buffer_size: "512"
+  huawei_log_level: INFO
+  huawei_tlv_ref: main
+  huawei_tlv_refresh: 1d
+
+external_components:
+  - source:
+      type: git
+      url: https://github.com/valexi7/Huawei-EMMA-RS485-TLV-Decoder
+      ref: ${huawei_tlv_ref}
+    components:
+      - huawei_emma_tlv
+    refresh: ${huawei_tlv_refresh}
+
+huawei_emma_tlv:
+
+logger:
+  logs:
+    huawei_prop: ${huawei_log_level}
+
+uart:
+  id: huawei_emma_uart
+  rx_pin: ${huawei_uart_rx_pin}
+  baud_rate: ${huawei_uart_baud_rate}
+  parity: NONE
+  stop_bits: 1
+  rx_buffer_size: ${huawei_uart_rx_buffer_size}
+  debug:
+    direction: RX
+    dummy_receiver: true
+    after:
+      timeout: 50ms
+    sequence:
+      - lambda: |-
+          huawei_decode_proprietary_uart_buffer(bytes);
+
+text_sensor:
+  - platform: template
+    id: huawei41_device_ids
+    name: "Discovered FC41 Device IDs"
+    icon: mdi:identifier
+    entity_category: diagnostic
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_bus_clock
+    name: "Inverter Bus Clock"
+    icon: mdi:clock-outline
+    entity_category: diagnostic
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: emma_bus_clock
+    name: "EMMA Bus Clock"
+    icon: mdi:clock-outline
+    entity_category: diagnostic
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: emma_serial_number
+    name: "EMMA Serial Number"
+    icon: mdi:barcode
+    entity_category: diagnostic
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_serial_number
+    name: "Inverter Serial Number"
+    icon: mdi:barcode
+    entity_category: diagnostic
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_startup_time
+    name: "Inverter Startup Time"
+    icon: mdi:clock-start
+    entity_category: diagnostic
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_shutdown_time
+    name: "Inverter Shutdown Time"
+    icon: mdi:clock-end
+    entity_category: diagnostic
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_time_field3
+    name: "Inverter Time Field 3"
+    icon: mdi:clock-outline
+    entity_category: diagnostic
+    lambda: |-
+      return std::nullopt;
+
+sensor:
+  - platform: template
+    id: inverter_bus_clock_sequence
+    name: "Inverter Bus Clock Sequence"
+    icon: mdi:counter
+    entity_category: diagnostic
+    state_class: measurement
+    accuracy_decimals: 0
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: emma_bus_clock_sequence
+    name: "EMMA Bus Clock Sequence"
+    icon: mdi:counter
+    entity_category: diagnostic
+    state_class: measurement
+    accuracy_decimals: 0
+    lambda: |-
+      return std::nullopt;
+
+  # Power Meter — device ID 2 (0x02), typically 0x89 report frames
+  - platform: template
+    id: meter_grid_frequency
+    name: "Power Meter Grid Frequency"
+    icon: mdi:sine-wave
+    device_class: frequency
+    state_class: measurement
+    unit_of_measurement: Hz
+    accuracy_decimals: 2
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: meter_phase_a_voltage
+    name: "Power Meter Phase A Voltage"
+    icon: mdi:sine-wave
+    device_class: voltage
+    state_class: measurement
+    unit_of_measurement: V
+    accuracy_decimals: 1
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: meter_phase_b_voltage
+    name: "Power Meter Phase B Voltage"
+    icon: mdi:sine-wave
+    device_class: voltage
+    state_class: measurement
+    unit_of_measurement: V
+    accuracy_decimals: 1
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: meter_phase_c_voltage
+    name: "Power Meter Phase C Voltage"
+    icon: mdi:sine-wave
+    device_class: voltage
+    state_class: measurement
+    unit_of_measurement: V
+    accuracy_decimals: 1
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: meter_line_ab_voltage
+    name: "Power Meter Line A-B Voltage"
+    icon: mdi:sine-wave
+    device_class: voltage
+    state_class: measurement
+    unit_of_measurement: V
+    accuracy_decimals: 1
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: meter_line_bc_voltage
+    name: "Power Meter Line B-C Voltage"
+    icon: mdi:sine-wave
+    device_class: voltage
+    state_class: measurement
+    unit_of_measurement: V
+    accuracy_decimals: 1
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: meter_line_ca_voltage
+    name: "Power Meter Line C-A Voltage"
+    icon: mdi:sine-wave
+    device_class: voltage
+    state_class: measurement
+    unit_of_measurement: V
+    accuracy_decimals: 1
+    lambda: |-
+      return std::nullopt;
+
+  # Inverter — device ID 12 (0x0C), typically 0x35 data frames
+  - platform: template
+    id: inverter_phase_a_voltage
+    name: "Inverter Phase A Voltage"
+    icon: mdi:sine-wave
+    device_class: voltage
+    state_class: measurement
+    unit_of_measurement: V
+    accuracy_decimals: 1
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_phase_b_voltage
+    name: "Inverter Phase B Voltage"
+    icon: mdi:sine-wave
+    device_class: voltage
+    state_class: measurement
+    unit_of_measurement: V
+    accuracy_decimals: 1
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_phase_c_voltage
+    name: "Inverter Phase C Voltage"
+    icon: mdi:sine-wave
+    device_class: voltage
+    state_class: measurement
+    unit_of_measurement: V
+    accuracy_decimals: 1
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_line_ab_voltage
+    name: "Inverter Line A-B Voltage"
+    icon: mdi:sine-wave
+    device_class: voltage
+    state_class: measurement
+    unit_of_measurement: V
+    accuracy_decimals: 1
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_line_bc_voltage
+    name: "Inverter Line B-C Voltage"
+    icon: mdi:sine-wave
+    device_class: voltage
+    state_class: measurement
+    unit_of_measurement: V
+    accuracy_decimals: 1
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_line_ca_voltage
+    name: "Inverter Line C-A Voltage"
+    icon: mdi:sine-wave
+    device_class: voltage
+    state_class: measurement
+    unit_of_measurement: V
+    accuracy_decimals: 1
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_phase_a_current
+    name: "Inverter Phase A Current"
+    icon: mdi:current-ac
+    device_class: current
+    state_class: measurement
+    unit_of_measurement: A
+    accuracy_decimals: 3
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_phase_b_current
+    name: "Inverter Phase B Current"
+    icon: mdi:current-ac
+    device_class: current
+    state_class: measurement
+    unit_of_measurement: A
+    accuracy_decimals: 3
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_phase_c_current
+    name: "Inverter Phase C Current"
+    icon: mdi:current-ac
+    device_class: current
+    state_class: measurement
+    unit_of_measurement: A
+    accuracy_decimals: 3
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_phase_a_power
+    name: "Inverter Phase A Power"
+    icon: mdi:flash
+    device_class: power
+    state_class: measurement
+    unit_of_measurement: W
+    accuracy_decimals: 0
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_phase_b_power
+    name: "Inverter Phase B Power"
+    icon: mdi:flash
+    device_class: power
+    state_class: measurement
+    unit_of_measurement: W
+    accuracy_decimals: 0
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_phase_c_power
+    name: "Inverter Phase C Power"
+    icon: mdi:flash
+    device_class: power
+    state_class: measurement
+    unit_of_measurement: W
+    accuracy_decimals: 0
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_active_power
+    name: "Inverter Active Power"
+    icon: mdi:solar-power
+    device_class: power
+    state_class: measurement
+    unit_of_measurement: W
+    accuracy_decimals: 0
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_solar_power_pv1
+    name: "Inverter Solar Power PV1"
+    icon: mdi:solar-power-variant
+    device_class: power
+    state_class: measurement
+    unit_of_measurement: W
+    accuracy_decimals: 0
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_solar_power_pv2
+    name: "Inverter Solar Power PV2"
+    icon: mdi:solar-power-variant
+    device_class: power
+    state_class: measurement
+    unit_of_measurement: W
+    accuracy_decimals: 0
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_reactive_power
+    name: "Inverter Reactive Power"
+    icon: mdi:flash
+    device_class: reactive_power
+    state_class: measurement
+    unit_of_measurement: var
+    accuracy_decimals: 0
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_reactive_power_aux
+    name: "Inverter Reactive Power Aux"
+    icon: mdi:flash
+    device_class: reactive_power
+    state_class: measurement
+    unit_of_measurement: var
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_power_factor
+    name: "Inverter Power Factor"
+    icon: mdi:angle-acute
+    device_class: power_factor
+    state_class: measurement
+    accuracy_decimals: 3
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_total_yield
+    name: "Inverter Total Yield"
+    icon: mdi:solar-power
+    device_class: energy
+    state_class: total_increasing
+    unit_of_measurement: kWh
+    accuracy_decimals: 2
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_daily_energy
+    name: "Inverter Daily Energy"
+    icon: mdi:solar-power
+    device_class: energy
+    state_class: total
+    unit_of_measurement: kWh
+    accuracy_decimals: 2
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_battery_charged_today
+    name: "Inverter Battery Charged Today"
+    icon: mdi:battery-charging
+    device_class: energy
+    state_class: total
+    unit_of_measurement: kWh
+    accuracy_decimals: 2
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_battery_discharged_today
+    name: "Inverter Battery Discharged Today"
+    icon: mdi:battery-arrow-down
+    device_class: energy
+    state_class: total
+    unit_of_measurement: kWh
+    accuracy_decimals: 2
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_battery_power
+    name: "Inverter Battery Power"
+    icon: mdi:battery
+    device_class: power
+    state_class: measurement
+    unit_of_measurement: W
+    accuracy_decimals: 0
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_battery_total_charge
+    name: "Inverter Battery Total Charge"
+    icon: mdi:battery-charging
+    device_class: energy
+    state_class: total_increasing
+    unit_of_measurement: kWh
+    accuracy_decimals: 2
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_battery_total_discharge
+    name: "Inverter Battery Total Discharge"
+    icon: mdi:battery-arrow-down
+    device_class: energy
+    state_class: total_increasing
+    unit_of_measurement: kWh
+    accuracy_decimals: 2
+    lambda: |-
+      return std::nullopt;
+
+  # EMMA — device ID 0 (0x00); active power may be negative when feeding the grid
+  - platform: template
+    id: emma_phase_a_voltage
+    name: "EMMA Phase A Voltage"
+    icon: mdi:sine-wave
+    device_class: voltage
+    state_class: measurement
+    unit_of_measurement: V
+    accuracy_decimals: 1
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: emma_phase_b_voltage
+    name: "EMMA Phase B Voltage"
+    icon: mdi:sine-wave
+    device_class: voltage
+    state_class: measurement
+    unit_of_measurement: V
+    accuracy_decimals: 1
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: emma_phase_c_voltage
+    name: "EMMA Phase C Voltage"
+    icon: mdi:sine-wave
+    device_class: voltage
+    state_class: measurement
+    unit_of_measurement: V
+    accuracy_decimals: 1
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: emma_line_ab_voltage
+    name: "EMMA Line A-B Voltage"
+    icon: mdi:sine-wave
+    device_class: voltage
+    state_class: measurement
+    unit_of_measurement: V
+    accuracy_decimals: 1
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: emma_line_bc_voltage
+    name: "EMMA Line B-C Voltage"
+    icon: mdi:sine-wave
+    device_class: voltage
+    state_class: measurement
+    unit_of_measurement: V
+    accuracy_decimals: 1
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: emma_line_ca_voltage
+    name: "EMMA Line C-A Voltage"
+    icon: mdi:sine-wave
+    device_class: voltage
+    state_class: measurement
+    unit_of_measurement: V
+    accuracy_decimals: 1
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: emma_line_ab_voltage_tlv
+    name: "EMMA Line A-B Voltage (TLV)"
+    icon: mdi:sine-wave
+    device_class: voltage
+    state_class: measurement
+    unit_of_measurement: V
+    accuracy_decimals: 1
+    entity_category: diagnostic
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: emma_line_bc_voltage_tlv
+    name: "EMMA Line B-C Voltage (TLV)"
+    icon: mdi:sine-wave
+    device_class: voltage
+    state_class: measurement
+    unit_of_measurement: V
+    accuracy_decimals: 1
+    entity_category: diagnostic
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: emma_line_ca_voltage_tlv
+    name: "EMMA Line C-A Voltage (TLV)"
+    icon: mdi:sine-wave
+    device_class: voltage
+    state_class: measurement
+    unit_of_measurement: V
+    accuracy_decimals: 1
+    entity_category: diagnostic
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: emma_phase_a_current
+    name: "EMMA Phase A Current"
+    icon: mdi:current-ac
+    device_class: current
+    state_class: measurement
+    unit_of_measurement: A
+    accuracy_decimals: 3
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: emma_phase_b_current
+    name: "EMMA Phase B Current"
+    icon: mdi:current-ac
+    device_class: current
+    state_class: measurement
+    unit_of_measurement: A
+    accuracy_decimals: 3
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: emma_phase_c_current
+    name: "EMMA Phase C Current"
+    icon: mdi:current-ac
+    device_class: current
+    state_class: measurement
+    unit_of_measurement: A
+    accuracy_decimals: 3
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: emma_phase_a_power
+    name: "EMMA Phase A Power"
+    icon: mdi:flash
+    device_class: power
+    state_class: measurement
+    unit_of_measurement: W
+    accuracy_decimals: 0
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: emma_phase_b_power
+    name: "EMMA Phase B Power"
+    icon: mdi:flash
+    device_class: power
+    state_class: measurement
+    unit_of_measurement: W
+    accuracy_decimals: 0
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: emma_phase_c_power
+    name: "EMMA Phase C Power"
+    icon: mdi:flash
+    device_class: power
+    state_class: measurement
+    unit_of_measurement: W
+    accuracy_decimals: 0
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: emma_active_power
+    name: "EMMA Active Power"
+    icon: mdi:transmission-tower
+    device_class: power
+    state_class: measurement
+    unit_of_measurement: W
+    accuracy_decimals: 0
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: emma_reactive_power
+    name: "EMMA Reactive Power"
+    icon: mdi:flash
+    device_class: reactive_power
+    state_class: measurement
+    unit_of_measurement: var
+    accuracy_decimals: 0
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: emma_power_factor
+    name: "EMMA Power Factor"
+    icon: mdi:angle-acute
+    device_class: power_factor
+    state_class: measurement
+    accuracy_decimals: 3
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: emma_total_yield
+    name: "EMMA Total Yield"
+    icon: mdi:transmission-tower
+    device_class: energy
+    state_class: total_increasing
+    unit_of_measurement: kWh
+    accuracy_decimals: 2
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: emma_daily_energy
+    name: "EMMA Daily Energy"
+    icon: mdi:transmission-tower
+    device_class: energy
+    state_class: total
+    unit_of_measurement: kWh
+    accuracy_decimals: 2
+    lambda: |-
+      return std::nullopt;

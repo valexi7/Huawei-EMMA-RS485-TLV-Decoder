@@ -1,0 +1,759 @@
+text_sensor:
+  # Static inverter identity. Slow controller keeps this away from real-time polling.
+  - platform: modbus_controller
+    modbus_controller_id: huawei_modbus
+    skip_updates: 119  # Hourly (120th round at 30s update interval)
+    name: "SUN2000 Model"
+    id: sun2000_model
+    icon: mdi:solar-power
+    entity_category: diagnostic
+    register_type: holding
+    address: 30000
+    register_count: 15
+    response_size: 30
+    raw_encode: UTF8
+
+  - platform: modbus_controller
+    modbus_controller_id: huawei_modbus
+    skip_updates: 119  # Hourly (120th round at 30s update interval)
+    name: "SUN2000 Serial Number"
+    id: sun2000_serial_number
+    icon: mdi:barcode
+    entity_category: diagnostic
+    register_type: holding
+    address: 30015
+    register_count: 10
+    response_size: 20
+    raw_encode: UTF8
+
+  - platform: modbus_controller
+    modbus_controller_id: huawei_modbus
+    skip_updates: 119  # Hourly (120th round at 30s update interval)
+    name: "SUN2000 Product Code"
+    id: sun2000_product_code
+    icon: mdi:identifier
+    entity_category: diagnostic
+    register_type: holding
+    address: 30025
+    register_count: 10
+    response_size: 20
+    raw_encode: UTF8
+
+  - platform: modbus_controller
+    modbus_controller_id: huawei_modbus
+    skip_updates: 119  # Hourly (120th round at 30s update interval)
+    name: "SUN2000 Firmware Version"
+    id: sun2000_firmware_version
+    icon: mdi:chip
+    entity_category: diagnostic
+    register_type: holding
+    address: 30035
+    register_count: 15
+    response_size: 30
+    raw_encode: UTF8
+
+  - platform: modbus_controller
+    modbus_controller_id: huawei_modbus
+    skip_updates: 119  # Hourly (120th round at 30s update interval)
+    name: "SUN2000 Software Version"
+    id: sun2000_software_version
+    icon: mdi:code-tags
+    entity_category: diagnostic
+    register_type: holding
+    address: 30050
+    register_count: 15
+    response_size: 30
+    raw_encode: UTF8
+
+  # Decoded status/alarm text.
+  - platform: modbus_controller
+    modbus_controller_id: huawei_modbus
+    skip_updates: 119  # Hourly (120th round at 30s update interval)
+    name: "SUN2000 Device Status"
+    id: sun2000_device_status
+    icon: mdi:state-machine
+    register_type: holding
+    address: 32089
+    register_count: 1
+    response_size: 2
+    raw_encode: HEXBYTES
+    lambda: |-
+      uint16_t v = modbus::helpers::word_from_hex_str(x, 0);
+      switch (v) {
+        case 0x0000: return std::string("Standby: initializing");
+        case 0x0001: return std::string("Standby: detecting insulation resistance");
+        case 0x0002: return std::string("Standby: detecting irradiation");
+        case 0x0003: return std::string("Standby: grid detecting");
+        case 0x0100: return std::string("Starting");
+        case 0x0200: return std::string("On-grid");
+        case 0x0201: return std::string("Grid Connection: power limited");
+        case 0x0202: return std::string("Grid Connection: self-derating");
+        case 0x0203: return std::string("Off-grid mode: running");
+        case 0x0300: return std::string("Shutdown: fault");
+        case 0x0301: return std::string("Shutdown: command");
+        case 0x0302: return std::string("Shutdown: OVGR");
+        case 0x0303: return std::string("Shutdown: communication disconnected");
+        case 0x0304: return std::string("Shutdown: power limited");
+        case 0x0305: return std::string("Shutdown: manual startup required");
+        case 0x0306: return std::string("Shutdown: DC switches disconnected");
+        case 0x0307: return std::string("Shutdown: rapid cutoff");
+        case 0x0308: return std::string("Shutdown: input underpowered");
+        case 0x030C: return std::string("Shutdown: ESS end-of-discharge");
+        case 0x0401: return std::string("Grid scheduling: cosphi-P curve");
+        case 0x0402: return std::string("Grid scheduling: Q-U curve");
+        case 0x0403: return std::string("Grid scheduling: PF-U curve");
+        case 0x0404: return std::string("Grid scheduling: dry contact");
+        case 0x0405: return std::string("Grid scheduling: Q-P curve");
+        case 0x0500: return std::string("Spot-check ready");
+        case 0x0501: return std::string("Spot-checking");
+        case 0x0600: return std::string("Inspecting");
+        case 0x0700: return std::string("AFCI self check");
+        case 0x0800: return std::string("I-V scanning");
+        case 0x0900: return std::string("DC input detection");
+        case 0x0A00: return std::string("Running: off-grid charging");
+        case 0xA000: return std::string("Standby: no irradiation");
+        default: {
+          char buf[32];
+          snprintf(buf, sizeof(buf), "Unknown: 0x%04X", v);
+          return std::string(buf);
+        }
+      }
+
+  - platform: modbus_controller
+    modbus_controller_id: huawei_modbus
+    skip_updates: 119  # Hourly (120th round at 30s update interval)
+    name: "SUN2000 Active Alarms"
+    id: sun2000_active_alarms
+    icon: mdi:alert
+    register_type: holding
+    address: 32008
+    register_count: 3
+    response_size: 6
+    raw_encode: HEXBYTES
+    lambda: |-
+      uint16_t a1 = modbus::helpers::word_from_hex_str(x, 0);  // bytes 0-1
+      uint16_t a2 = modbus::helpers::word_from_hex_str(x, 2);  // bytes 2-3
+      uint16_t a3 = modbus::helpers::word_from_hex_str(x, 4);  // bytes 4-5
+      std::vector<std::string> alarms;
+      auto add = [&](bool active, const char *name) {
+        if (active) alarms.push_back(name);
+      };
+
+      add(a1 & 0x0001, "High String Input Voltage");
+      add(a1 & 0x0002, "DC Arc Fault");
+      add(a1 & 0x0004, "String Reverse Connection");
+      add(a1 & 0x0008, "String Current Backfeed");
+      add(a1 & 0x0010, "Abnormal String Power");
+      add(a1 & 0x0020, "AFCI Self-Check Fail");
+      add(a1 & 0x0040, "Phase Wire Short-Circuited to PE");
+      add(a1 & 0x0080, "Grid Loss");
+      add(a1 & 0x0100, "Grid Undervoltage");
+      add(a1 & 0x0200, "Grid Overvoltage");
+      add(a1 & 0x0400, "Grid Volt. Imbalance");
+      add(a1 & 0x0800, "Grid Overfrequency");
+      add(a1 & 0x1000, "Grid Underfrequency");
+      add(a1 & 0x2000, "Unstable Grid Frequency");
+      add(a1 & 0x4000, "Output Overcurrent");
+      add(a1 & 0x8000, "Output DC Component Overhigh");
+
+      add(a2 & 0x0001, "Abnormal Residual Current");
+      add(a2 & 0x0002, "Abnormal Grounding");
+      add(a2 & 0x0004, "Low Insulation Resistance");
+      add(a2 & 0x0008, "Overtemperature");
+      add(a2 & 0x0010, "Device Fault");
+      add(a2 & 0x0020, "Upgrade Failed or Version Mismatch");
+      add(a2 & 0x0040, "License Expired");
+      add(a2 & 0x0080, "Faulty Monitoring Unit");
+      add(a2 & 0x0100, "Faulty Power Collector");
+      add(a2 & 0x0200, "Battery abnormal");
+      add(a2 & 0x0400, "Active Islanding");
+      add(a2 & 0x0800, "Passive Islanding");
+      add(a2 & 0x1000, "Transient AC Overvoltage");
+      add(a2 & 0x2000, "Peripheral port short circuit");
+      add(a2 & 0x4000, "Churn output overload");
+      add(a2 & 0x8000, "Abnormal PV module configuration");
+
+      add(a3 & 0x0001, "Optimizer fault");
+      add(a3 & 0x0002, "Built-in PID operation abnormal");
+      add(a3 & 0x0004, "High input string voltage to ground");
+      add(a3 & 0x0008, "External Fan Abnormal");
+      add(a3 & 0x0010, "Battery Reverse Connection");
+      add(a3 & 0x0020, "On-grid/Off-grid controller abnormal");
+      add(a3 & 0x0040, "PV String Loss");
+      add(a3 & 0x0080, "Internal Fan Abnormal");
+      add(a3 & 0x0100, "DC Protection Unit Abnormal");
+      add(a3 & 0x0200, "EL Unit Abnormal");
+      add(a3 & 0x0400, "Active Adjustment Instruction Abnormal");
+      add(a3 & 0x0800, "Reactive Adjustment Instruction Abnormal");
+      add(a3 & 0x1000, "CT Wiring Abnormal");
+      add(a3 & 0x2000, "DC Arc Fault ADMC");
+      add(a3 & 0x4000, "DC Switch Abnormal");
+      add(a3 & 0x8000, "Allowable discharge capacity of the battery is low");
+
+      if (alarms.empty()) return std::string("No active alarms");
+      std::string out;
+      for (size_t i = 0; i < alarms.size(); i++) {
+        if (i > 0) out += "; ";
+        out += alarms[i];
+      }
+      return out;
+
+sensor:
+  # Diagnostic status bitfields, 32000-32010. These should be grouped by ESPHome.
+  - platform: modbus_controller
+    modbus_controller_id: huawei_modbus
+    skip_updates: 119  # Hourly (120th round at 30s update interval)
+    name: "SUN2000 State 1 Raw"
+    id: sun2000_state_1_raw
+    icon: mdi:state-machine
+    entity_category: diagnostic
+    register_type: holding
+    address: 32000
+    value_type: U_WORD
+
+  - platform: modbus_controller
+    modbus_controller_id: huawei_modbus
+    skip_updates: 119  # Hourly (120th round at 30s update interval)
+    name: "SUN2000 State 2 Raw"
+    id: sun2000_state_2_raw
+    icon: mdi:state-machine
+    entity_category: diagnostic
+    register_type: holding
+    address: 32002
+    value_type: U_WORD
+
+  - platform: modbus_controller
+    modbus_controller_id: huawei_modbus
+    skip_updates: 119  # Hourly (120th round at 30s update interval)
+    name: "SUN2000 State 3 Raw"
+    id: sun2000_state_3_raw
+    icon: mdi:state-machine
+    entity_category: diagnostic
+    register_type: holding
+    address: 32003
+    value_type: U_DWORD
+
+  - platform: modbus_controller
+    modbus_controller_id: huawei_modbus
+    skip_updates: 119  # Hourly (120th round at 30s update interval)
+    name: "SUN2000 Alarm 1 Raw"
+    id: sun2000_alarm_1_raw
+    icon: mdi:alert-outline
+    entity_category: diagnostic
+    register_type: holding
+    address: 32008
+    value_type: U_WORD
+
+  - platform: modbus_controller
+    modbus_controller_id: huawei_modbus
+    skip_updates: 119  # Hourly (120th round at 30s update interval)
+    name: "SUN2000 Alarm 2 Raw"
+    id: sun2000_alarm_2_raw
+    icon: mdi:alert-outline
+    entity_category: diagnostic
+    register_type: holding
+    address: 32009
+    value_type: U_WORD
+
+  - platform: modbus_controller
+    modbus_controller_id: huawei_modbus
+    skip_updates: 119  # Hourly (120th round at 30s update interval)
+    name: "SUN2000 Alarm 3 Raw"
+    id: sun2000_alarm_3_raw
+    icon: mdi:alert-outline
+    entity_category: diagnostic
+    register_type: holding
+    address: 32010
+    value_type: U_WORD
+
+  # PV / DC input, 32016-32019 and 32064.
+  - platform: modbus_controller
+    modbus_controller_id: huawei_modbus
+    skip_updates: 119  # Hourly (120th round at 30s update interval)
+    name: "SUN2000 PV1 Voltage"
+    id: sun2000_pv1_voltage
+    icon: mdi:solar-panel
+    device_class: voltage
+    state_class: measurement
+    register_type: holding
+    address: 32016
+    value_type: S_WORD
+    unit_of_measurement: V
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: huawei_modbus
+    skip_updates: 119  # Hourly (120th round at 30s update interval)
+    name: "SUN2000 PV1 Current"
+    id: sun2000_pv1_current
+    icon: mdi:current-dc
+    device_class: current
+    state_class: measurement
+    register_type: holding
+    address: 32017
+    value_type: S_WORD
+    unit_of_measurement: A
+    accuracy_decimals: 2
+    filters:
+      - multiply: 0.01
+
+  - platform: modbus_controller
+    modbus_controller_id: huawei_modbus
+    skip_updates: 119  # Hourly (120th round at 30s update interval)
+    name: "SUN2000 PV2 Voltage"
+    id: sun2000_pv2_voltage
+    icon: mdi:solar-panel
+    device_class: voltage
+    state_class: measurement
+    register_type: holding
+    address: 32018
+    value_type: S_WORD
+    unit_of_measurement: V
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: huawei_modbus
+    skip_updates: 119  # Hourly (120th round at 30s update interval)
+    name: "SUN2000 PV2 Current"
+    id: sun2000_pv2_current
+    icon: mdi:current-dc
+    device_class: current
+    state_class: measurement
+    register_type: holding
+    address: 32019
+    value_type: S_WORD
+    unit_of_measurement: A
+    accuracy_decimals: 2
+    filters:
+      - multiply: 0.01
+
+  # Real-time inverter and grid values, 32064-32088. Contiguous reads reduce bus traffic.
+  - platform: modbus_controller
+    modbus_controller_id: huawei_modbus
+    skip_updates: 119  # Hourly (120th round at 30s update interval)
+    name: "SUN2000 Input Power"
+    id: sun2000_input_power
+    icon: mdi:solar-power
+    device_class: power
+    state_class: measurement
+    register_type: holding
+    address: 32064
+    value_type: S_DWORD
+    unit_of_measurement: W
+    accuracy_decimals: 0
+
+  # GRID_VOLTAGE and LINE_VOLTAGE_A_B use the same register. Keep one physical sensor.
+  - platform: modbus_controller
+    modbus_controller_id: huawei_modbus
+    skip_updates: 119  # Hourly (120th round at 30s update interval)
+    name: "SUN2000 Line Voltage A-B"
+    id: sun2000_line_voltage_a_b
+    icon: mdi:transmission-tower
+    device_class: voltage
+    state_class: measurement
+    register_type: holding
+    address: 32066
+    value_type: U_WORD
+    unit_of_measurement: V
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: huawei_modbus
+    skip_updates: 119  # Hourly (120th round at 30s update interval)
+    name: "SUN2000 Line Voltage B-C"
+    id: sun2000_line_voltage_b_c
+    icon: mdi:transmission-tower
+    device_class: voltage
+    state_class: measurement
+    register_type: holding
+    address: 32067
+    value_type: U_WORD
+    unit_of_measurement: V
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: huawei_modbus
+    skip_updates: 119  # Hourly (120th round at 30s update interval)
+    name: "SUN2000 Line Voltage C-A"
+    id: sun2000_line_voltage_c_a
+    icon: mdi:transmission-tower
+    device_class: voltage
+    state_class: measurement
+    register_type: holding
+    address: 32068
+    value_type: U_WORD
+    unit_of_measurement: V
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: huawei_modbus
+    skip_updates: 119  # Hourly (120th round at 30s update interval)
+    name: "SUN2000 Phase A Voltage"
+    id: sun2000_phase_a_voltage
+    icon: mdi:sine-wave
+    device_class: voltage
+    state_class: measurement
+    register_type: holding
+    address: 32069
+    value_type: U_WORD
+    unit_of_measurement: V
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: huawei_modbus
+    skip_updates: 119  # Hourly (120th round at 30s update interval)
+    name: "SUN2000 Phase B Voltage"
+    id: sun2000_phase_b_voltage
+    icon: mdi:sine-wave
+    device_class: voltage
+    state_class: measurement
+    register_type: holding
+    address: 32070
+    value_type: U_WORD
+    unit_of_measurement: V
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: huawei_modbus
+    skip_updates: 119  # Hourly (120th round at 30s update interval)
+    name: "SUN2000 Phase C Voltage"
+    id: sun2000_phase_c_voltage
+    icon: mdi:sine-wave
+    device_class: voltage
+    state_class: measurement
+    register_type: holding
+    address: 32071
+    value_type: U_WORD
+    unit_of_measurement: V
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: huawei_modbus
+    skip_updates: 119  # Hourly (120th round at 30s update interval)
+    name: "SUN2000 Phase A Current"
+    id: sun2000_phase_a_current
+    icon: mdi:current-ac
+    device_class: current
+    state_class: measurement
+    register_type: holding
+    address: 32072
+    value_type: S_DWORD
+    unit_of_measurement: A
+    accuracy_decimals: 3
+    filters:
+      - multiply: 0.001
+
+  - platform: modbus_controller
+    modbus_controller_id: huawei_modbus
+    skip_updates: 119  # Hourly (120th round at 30s update interval)
+    name: "SUN2000 Phase B Current"
+    id: sun2000_phase_b_current
+    icon: mdi:current-ac
+    device_class: current
+    state_class: measurement
+    register_type: holding
+    address: 32074
+    value_type: S_DWORD
+    unit_of_measurement: A
+    accuracy_decimals: 3
+    filters:
+      - multiply: 0.001
+
+  - platform: modbus_controller
+    modbus_controller_id: huawei_modbus
+    skip_updates: 119  # Hourly (120th round at 30s update interval)
+    name: "SUN2000 Phase C Current"
+    id: sun2000_phase_c_current
+    icon: mdi:current-ac
+    device_class: current
+    state_class: measurement
+    register_type: holding
+    address: 32076
+    value_type: S_DWORD
+    unit_of_measurement: A
+    accuracy_decimals: 3
+    filters:
+      - multiply: 0.001
+
+  - platform: modbus_controller
+    modbus_controller_id: huawei_modbus
+    skip_updates: 119  # Hourly (120th round at 30s update interval)
+    name: "SUN2000 Day Active Power Peak"
+    id: sun2000_day_active_power_peak
+    icon: mdi:chart-line
+    device_class: power
+    state_class: measurement
+    register_type: holding
+    address: 32078
+    value_type: S_DWORD
+    unit_of_measurement: W
+    accuracy_decimals: 0
+
+  - platform: modbus_controller
+    modbus_controller_id: huawei_modbus
+    skip_updates: 119  # Hourly (120th round at 30s update interval)
+    name: "SUN2000 Active Power"
+    id: sun2000_active_power
+    icon: mdi:flash
+    device_class: power
+    state_class: measurement
+    register_type: holding
+    address: 32080
+    value_type: S_DWORD
+    unit_of_measurement: W
+    accuracy_decimals: 0
+
+  - platform: modbus_controller
+    modbus_controller_id: huawei_modbus
+    skip_updates: 119  # Hourly (120th round at 30s update interval)
+    name: "SUN2000 Reactive Power"
+    id: sun2000_reactive_power
+    icon: mdi:flash-outline
+    state_class: measurement
+    register_type: holding
+    address: 32082
+    value_type: S_DWORD
+    unit_of_measurement: var
+    accuracy_decimals: 0
+
+  - platform: modbus_controller
+    modbus_controller_id: huawei_modbus
+    skip_updates: 119  # Hourly (120th round at 30s update interval)
+    name: "SUN2000 Power Factor"
+    id: sun2000_power_factor
+    icon: mdi:cosine-wave
+    state_class: measurement
+    register_type: holding
+    address: 32084
+    value_type: S_WORD
+    accuracy_decimals: 3
+    filters:
+      - multiply: 0.001
+
+  - platform: modbus_controller
+    modbus_controller_id: huawei_modbus
+    skip_updates: 119  # Hourly (120th round at 30s update interval)
+    name: "SUN2000 Grid Frequency"
+    id: sun2000_grid_frequency
+    icon: mdi:sine-wave
+    device_class: frequency
+    state_class: measurement
+    register_type: holding
+    address: 32085
+    value_type: U_WORD
+    unit_of_measurement: Hz
+    accuracy_decimals: 2
+    filters:
+      - multiply: 0.01
+
+  - platform: modbus_controller
+    modbus_controller_id: huawei_modbus
+    skip_updates: 119  # Hourly (120th round at 30s update interval)
+    name: "SUN2000 Efficiency"
+    id: sun2000_efficiency
+    icon: mdi:percent
+    state_class: measurement
+    register_type: holding
+    address: 32086
+    value_type: U_WORD
+    unit_of_measurement: "%"
+    accuracy_decimals: 2
+    filters:
+      - multiply: 0.01
+
+  - platform: modbus_controller
+    modbus_controller_id: huawei_modbus
+    skip_updates: 119  # Hourly (120th round at 30s update interval)
+    name: "SUN2000 Internal Temperature"
+    id: sun2000_internal_temperature
+    icon: mdi:thermometer
+    device_class: temperature
+    state_class: measurement
+    register_type: holding
+    address: 32087
+    value_type: S_WORD
+    unit_of_measurement: "°C"
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: huawei_modbus
+    skip_updates: 119  # Hourly (120th round at 30s update interval)
+    name: "SUN2000 Insulation Resistance"
+    id: sun2000_insulation_resistance
+    icon: mdi:omega
+    state_class: measurement
+    register_type: holding
+    address: 32088
+    value_type: U_WORD
+    unit_of_measurement: "MΩ"
+    accuracy_decimals: 3
+    filters:
+      - multiply: 0.001
+
+  # Storage Unit 1 live values
+  - platform: modbus_controller
+    modbus_controller_id: huawei_modbus
+    skip_updates: 119  # Hourly (120th round at 30s update interval)
+    name: "Battery Storage Charge Discharge Power"
+    id: battery_storage_charge_discharge_power
+    icon: mdi:battery-charging
+    device_class: power
+    state_class: measurement
+    register_type: holding
+    address: 37001
+    value_type: S_DWORD
+    unit_of_measurement: W
+    accuracy_decimals: 0
+
+  - platform: modbus_controller
+    modbus_controller_id: huawei_modbus
+    skip_updates: 119  # Hourly (120th round at 30s update interval)
+    name: "Battery Storage Bus Voltage"
+    id: battery_storage_bus_voltage
+    icon: mdi:current-dc
+    device_class: voltage
+    state_class: measurement
+    register_type: holding
+    address: 37003
+    value_type: U_WORD
+    unit_of_measurement: V
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: huawei_modbus
+    skip_updates: 119  # Hourly (120th round at 30s update interval)
+    name: "Battery Storage SOC"
+    id: battery_storage_soc
+    icon: mdi:battery
+    device_class: battery
+    state_class: measurement
+    register_type: holding
+    address: 37004
+    value_type: U_WORD
+    unit_of_measurement: "%"
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: huawei_modbus
+    skip_updates: 119  # Hourly (120th round at 30s update interval)
+    name: "Battery Storage Bus Current"
+    id: battery_storage_bus_current
+    icon: mdi:current-dc
+    device_class: current
+    state_class: measurement
+    register_type: holding
+    address: 37021
+    value_type: S_WORD
+    unit_of_measurement: A
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: huawei_modbus
+    skip_updates: 119  # Hourly (120th round at 30s update interval)
+    name: "Battery Storage Battery Temperature"
+    id: battery_storage_battery_temperature
+    icon: mdi:thermometer
+    device_class: temperature
+    state_class: measurement
+    register_type: holding
+    address: 37022
+    value_type: S_WORD
+    unit_of_measurement: "°C"
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: huawei_modbus
+    skip_updates: 119  # Hourly (120th round at 30s update interval)
+    name: "Battery Storage Remaining Charge Discharge Time"
+    id: battery_storage_remaining_charge_discharge_time
+    icon: mdi:timer-outline
+    state_class: measurement
+    register_type: holding
+    address: 37025
+    value_type: U_WORD
+    unit_of_measurement: min
+
+  # Storage limits / totals
+  - platform: modbus_controller
+    modbus_controller_id: huawei_modbus
+    skip_updates: 119  # Hourly (120th round at 30s update interval)
+    name: "Battery Storage Maximum Charge Power"
+    id: battery_storage_maximum_charge_power
+    icon: mdi:battery-arrow-up
+    device_class: power
+    state_class: measurement
+    register_type: holding
+    address: 37046
+    value_type: U_DWORD
+    unit_of_measurement: W
+
+  - platform: modbus_controller
+    modbus_controller_id: huawei_modbus
+    skip_updates: 119  # Hourly (120th round at 30s update interval)
+    name: "Battery Storage Maximum Discharge Power"
+    id: battery_storage_maximum_discharge_power
+    icon: mdi:battery-arrow-down
+    device_class: power
+    state_class: measurement
+    register_type: holding
+    address: 37048
+    value_type: U_DWORD
+    unit_of_measurement: W
+
+  - platform: modbus_controller
+    modbus_controller_id: huawei_modbus
+    skip_updates: 119  # Hourly (120th round at 30s update interval)
+    name: "Battery Storage Total Charge"
+    id: battery_storage_total_charge
+    icon: mdi:battery-plus
+    device_class: energy
+    state_class: total_increasing
+    register_type: holding
+    address: 37066
+    value_type: U_DWORD
+    unit_of_measurement: kWh
+    accuracy_decimals: 2
+    filters:
+      - multiply: 0.01
+
+  - platform: modbus_controller
+    modbus_controller_id: huawei_modbus
+    skip_updates: 119  # Hourly (120th round at 30s update interval)
+    name: "Battery Storage Total Discharge"
+    id: battery_storage_total_discharge
+    icon: mdi:battery-minus
+    device_class: energy
+    state_class: total_increasing
+    register_type: holding
+    address: 37068
+    value_type: U_DWORD
+    unit_of_measurement: kWh
+    accuracy_decimals: 2
+    filters:
+      - multiply: 0.01

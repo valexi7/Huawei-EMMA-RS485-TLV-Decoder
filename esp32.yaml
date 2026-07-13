@@ -1,0 +1,28 @@
+substitutions:
+  name: huawei-emma-rs485
+  friendly_name: Huawei EMMA RS485
+  board: esp32dev
+  huawei_uart_rx_pin: GPIO21
+
+packages:
+  huawei_emma: github://valexi7/Huawei-EMMA-RS485-TLV-Decoder/huawei-emma-rs485.yaml@main
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+
+esp32:
+  board: ${board}
+  framework:
+    type: esp-idf
+
+logger:
+
+api:
+
+ota:
+  - platform: esphome
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
