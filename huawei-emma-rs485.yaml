@@ -23,6 +23,10 @@ logger:
   logs:
     huawei_prop: ${huawei_log_level}
 
+api:
+  id: homeassistant_service
+  homeassistant_services: true
+
 uart:
   id: huawei_emma_uart
   rx_pin: ${huawei_uart_rx_pin}
@@ -243,21 +247,21 @@ text_sensor:
     lambda: |-
       return std::nullopt;
 
-  - platform: template
-    id: huawei41_decoded_frame_export_tags
-    name: "Huawei FC41 Decoded Frame Tags"
-    icon: mdi:tag-multiple
-    entity_category: diagnostic
-    lambda: |-
-      return std::nullopt;
+  # - platform: template
+  #   id: huawei41_decoded_frame_export_tags
+  #   name: "Huawei FC41 Decoded Frame Tags"
+  #   icon: mdi:tag-multiple
+  #   entity_category: diagnostic
+  #   lambda: |-
+  #     return std::nullopt;
 
-  - platform: template
-    id: huawei41_decoded_frame_export_raw
-    name: "Huawei FC41 Decoded Frame Raw"
-    icon: mdi:barcode
-    entity_category: diagnostic
-    lambda: |-
-      return std::nullopt;
+  # - platform: template
+  #   id: huawei41_decoded_frame_export_raw
+  #   name: "Huawei FC41 Decoded Frame Raw"
+  #   icon: mdi:barcode
+  #   entity_category: diagnostic
+  #   lambda: |-
+  #     return std::nullopt;
 
   - platform: template
     id: inverter_bus_clock
