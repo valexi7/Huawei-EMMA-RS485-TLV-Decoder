@@ -558,6 +558,8 @@ static inline void hp_publish_fc41_frame_to_mqtt(const std::string &summary,
                                                   const std::vector<uint8_t> &bytes, size_t p,
                                                   size_t bounded_end) {
 #ifdef USE_MQTT
+  ESP_LOGI(HUAWEI_PROP_TAG, "MQTT enabled");
+  
   if (global_mqtt_client != nullptr) {
     std::string json_payload = "{\"state\":\"" + summary +
                                "\",\"tags\":\"" +
@@ -565,6 +567,8 @@ static inline void hp_publish_fc41_frame_to_mqtt(const std::string &summary,
                                "\",\"raw\":\"" +
                                hp_hex_slice(bytes, p, bounded_end - p) + "\"}";
     global_mqtt_client->publish("huawei-emma-rs485/fc41_frame", json_payload);
+  } else {
+    ESP_LOGW(HUAWEI_PROP_TAG, "MQTT client NULL");
   }
 #else
   (void) summary;
@@ -572,6 +576,7 @@ static inline void hp_publish_fc41_frame_to_mqtt(const std::string &summary,
   (void) bytes;
   (void) p;
   (void) bounded_end;
+  ESP_LOGW(HUAWEI_PROP_TAG, "USE_MQTT not defined");
 #endif
 }
 
