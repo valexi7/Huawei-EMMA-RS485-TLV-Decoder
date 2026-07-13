@@ -23,10 +23,6 @@ logger:
   logs:
     huawei_prop: ${huawei_log_level}
 
-api:
-  id: homeassistant_service
-  homeassistant_services: true
-
 uart:
   id: huawei_emma_uart
   rx_pin: ${huawei_uart_rx_pin}
@@ -237,7 +233,7 @@ text_sensor:
     lambda: |-
       return std::nullopt;
 
-  # Latest decoded data frame for forwarding with a Home Assistant automation.
+  # Latest decoded data frame also published to MQTT topic huawei-emma-rs485/fc41_frame.
   # One-byte FC41 heartbeats and opaque upload frames do not update this entity.
   - platform: template
     id: huawei41_decoded_frame_export

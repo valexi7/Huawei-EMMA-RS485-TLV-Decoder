@@ -119,16 +119,34 @@ Override `huawei_rx_light_id` if your light uses another ID, and
 ### Forwarding decoded frames
 
 The package currently keeps `Huawei FC41 Decoded Frame` as the diagnostic text
-sensor state and also sends a Home Assistant service call for:
+sensor state and also publishes a JSON payload to MQTT topic
+`huawei-emma-rs485/fc41_frame` when the MQTT client is configured and connected.
 
-- `entity_id`: `sensor.boiler_room_huawei_emma_rs485_huawei_fc41_decoded_frame`
 - `state`: frame summary header
 - `tags`: decoded TLV entries for current-data frames
 - `raw`: raw hex bytes for the exported frame
 
-The separate `Huawei FC41 Decoded Frame Tags` and `Huawei FC41 Decoded Frame
-Raw` sensors are commented out for now. One-byte current-data heartbeats and
-opaque upload sub-functions do not trigger this export.
+One-byte current-data heartbeats and opaque upload sub-functions do not trigger
+this export.
+
+### MQTT broker configuration
+
+Add an MQTT section in your local ESPHome device config (not in the package):
+
+```yaml
+mqtt:
+  broker: 192.168.1.10
+  username: !secret mqtt_user
+  password: !secret mqtt_password
+```
+
+### Listen to FC41 topic
+
+Use `mosquitto_sub` to watch published decoded frames:
+
+```bash
+mosquitto_sub -h 192.168.1.10 -u "<user>" -P "<password>" -t "huawei-emma-rs485/fc41_frame" -v
+```
 
 ## Hardware
 
