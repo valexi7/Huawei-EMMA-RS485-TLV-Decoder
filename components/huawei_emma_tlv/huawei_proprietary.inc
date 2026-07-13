@@ -391,6 +391,39 @@ static inline void hp_publish_optional_text_sensor(const char *entity_name, cons
   }
 }
 
+static inline void hp_publish_fc41_frame_to_homeassistant(const std::string &state_val,
+                                                           const std::string &tags_val,
+                                                           const std::string &raw_val) {
+#ifdef USE_API_HOMEASSISTANT_SERVICES
+  esphome::api::HomeassistantActionRequest call;
+  call.service = esphome::StringRef("homeassistant.set_state");
+  call.is_event = false;
+  call.data.init(4);
+
+  auto &entity_id = call.data.emplace_back();
+  entity_id.key = esphome::StringRef("entity_id");
+  entity_id.value = esphome::StringRef("sensor.boiler_room_huawei_emma_rs485_huawei_fc41_decoded_frame");
+
+  auto &state = call.data.emplace_back();
+  state.key = esphome::StringRef("state");
+  state.value = esphome::StringRef(state_val);
+
+  auto &tags = call.data.emplace_back();
+  tags.key = esphome::StringRef("tags");
+  tags.value = esphome::StringRef(tags_val);
+
+  auto &raw = call.data.emplace_back();
+  raw.key = esphome::StringRef("raw");
+  raw.value = esphome::StringRef(raw_val);
+
+  id(homeassistant_service).send_homeassistant_action(call);
+#else
+  (void) state_val;
+  (void) tags_val;
+  (void) raw_val;
+#endif
+}
+
 static inline void hp_publish_unknown_tag_page(size_t page, const std::string &value) {
   char entity_name[48];
   snprintf(entity_name, sizeof(entity_name), "Unknown FC41 Device Tags %u", static_cast<unsigned>(page + 1));
@@ -1564,9 +1597,9 @@ static inline std::string hp_decode_0x41_frame(const std::vector<uint8_t> &bytes
         export_tags += entry;
       }
     }
+    const std::string raw_bytes = hp_hex_slice(bytes, p, bounded_end - p);
     id(huawei41_decoded_frame_export).publish_state(summary);
-    id(huawei41_decoded_frame_export_tags).publish_state(export_tags.empty() ? "(none)" : export_tags);
-    id(huawei41_decoded_frame_export_raw).publish_state(hp_hex_slice(bytes, p, bounded_end - p));
+    hp_publish_fc41_frame_to_homeassistant(summary, export_tags.empty() ? "(none)" : export_tags, raw_bytes);
   }
   if (subfunction == HP_FC41_SUBFN_CURRENT_DATA || subfunction == HP_FC41_SUBFN_REPORT) {
     hp_log_hex_chunks(bytes, p, bounded_end - p, "raw-frame");

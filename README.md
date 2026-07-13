@@ -118,17 +118,17 @@ Override `huawei_rx_light_id` if your light uses another ID, and
 
 ### Forwarding decoded frames
 
-The export is split across three diagnostic text sensors to stay below Home
-Assistant's 255-character text state limit:
+The package currently keeps `Huawei FC41 Decoded Frame` as the diagnostic text
+sensor state and also sends a Home Assistant service call for:
 
-- `Huawei FC41 Decoded Frame` - frame summary header.
-- `Huawei FC41 Decoded Frame Tags` - decoded TLV entries for current-data frames.
-- `Huawei FC41 Decoded Frame Raw` - raw hex bytes for the exported frame.
+- `entity_id`: `sensor.boiler_room_huawei_emma_rs485_huawei_fc41_decoded_frame`
+- `state`: frame summary header
+- `tags`: decoded TLV entries for current-data frames
+- `raw`: raw hex bytes for the exported frame
 
-Use a Home Assistant automation to combine/forward these values to Google
-Sheets or another logging service. One-byte current-data heartbeats do not
-update these sensors, and upload sub-functions stay opaque and are not
-published to them.
+The separate `Huawei FC41 Decoded Frame Tags` and `Huawei FC41 Decoded Frame
+Raw` sensors are commented out for now. One-byte current-data heartbeats and
+opaque upload sub-functions do not trigger this export.
 
 ## Hardware
 
