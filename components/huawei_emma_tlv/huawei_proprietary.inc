@@ -12,20 +12,20 @@
 static const char *const HUAWEI_PROP_TAG = "huawei_prop";
 
 static constexpr uint16_t HP_TAG_LINE_VOLTAGE = 0x774D;       // A-B, B-C, C-A line voltages (×0.1 V)
-static constexpr uint16_t HP_TAG_PHASE_VOLTAGE = 0x9C52;      // L-N phase voltages A/B/C (×0.1 V)
+static constexpr uint16_t HP_TAG_METER_PHASE_VOLTAGE_AUX = 0x9C52;  // meter-only candidate phase voltages
 static constexpr uint16_t HP_TAG_GRID_FREQ_PHASE_V = 0x7733;  // count=4: freq(/100 Hz), A/B/C V (×0.1)
-static constexpr uint16_t HP_TAG_PHASE_VOLTAGE_COUNT = 0x7734;  // count=3 L-N A/B/C (×0.1 V), EMMA + others
+static constexpr uint16_t HP_TAG_METER_PHASE_VOLTAGE = 0x7734;  // meter-only phase voltages A/B/C (×0.1 V)
 static constexpr uint16_t HP_TAG_PHASE_VOLTAGE_TLV = 0x7EC5;
 static constexpr uint16_t HP_TAG_PHASE_VOLTAGE_U32 = 0x90ED;
 static constexpr uint16_t HP_TAG_PHASE_CURRENT = 0x7D48;    // 0x35 words=6, A/B/C amps (×0.001)
 static constexpr uint16_t HP_TAG_PHASE_ACTIVE_POWER = 0x910C;  // 0x35 words=6, Pa/Pb/Pc (W)
-static constexpr uint16_t HP_TAG_EMMA_PHASE_VOLTAGE = 0x7729;  // EMMA count=3 L-N A/B/C (×0.1 V)
+static constexpr uint16_t HP_TAG_METER_PHASE_VOLTAGE_ALT = 0x7729;  // meter-only candidate; count varies
 static constexpr uint16_t HP_TAG_LINE_VOLTAGE_U32 = 0x9106;    // u32 line-voltage payload (×0.1 V)
-static constexpr uint16_t HP_TAG_EMMA_PHASE_ACTIVE_POWER = 0x90FB;  // 0x35 words=3 i16 Pa/Pb/Pc (W)
-static constexpr uint16_t HP_TAG_EMMA_PHASE_ACTIVE_POWER_I32 = 0x90F3;  // 0x35 words=6 i32 Pa/Pb/Pc (W)
+static constexpr uint16_t HP_TAG_PHASE_ACTIVE_POWER_I16 = 0x90FB;  // inverter 0x35 words=3 i16 Pa/Pb/Pc (W)
+static constexpr uint16_t HP_TAG_PHASE_ACTIVE_POWER_ALT = 0x90F3;  // inverter 0x35 words=6 i32 Pa/Pb/Pc (W)
 static constexpr uint16_t HP_TAG_ACTIVE_POWER = 0x7D5F;     // 0x35 words=2 i32, active power W
 static constexpr uint16_t HP_TAG_REACTIVE_POWER = 0x7D66;   // 0x35 words=2, var (signed)
-static constexpr uint16_t HP_TAG_REACTIVE_AUX = 0x93C5;     // 0x35 words=2, var or PF-related (signed)
+static constexpr uint16_t HP_TAG_INVERTER_CANDIDATE_93C5 = 0x93C5;  // observed i32; semantics unknown
 static constexpr uint16_t HP_TAG_TOTAL_YIELD = 0x7D6A;      // 0x35 words=2 u32, lifetime kWh (×0.01)
 static constexpr uint16_t HP_TAG_DAILY_ENERGY = 0x7D80;     // 0x35 words=2 u32, daily kWh (×0.01)
 static constexpr uint16_t HP_TAG_INVERTER_TIMES = 0x7D01;   // 0x35 words=6 u32 startup/shutdown/unknown
@@ -36,7 +36,7 @@ static constexpr uint16_t HP_TAG_BATTERY_TOTAL_DISCHARGE = 0x90CA;  // 0x35 word
 static constexpr uint16_t HP_TAG_BATTERY_POWER = 0x9089;           // 0x35 words=2 i32, charge/discharge W
 static constexpr size_t HP_BATTERY_TOTAL_DISCHARGE_OPAQUE_OFFSET = 5;
 static constexpr uint16_t HP_TAG_INVERTER_SOLAR_PV = 0x7E44;         // 0x35 words=4 i32[2], PV1/PV2 watts
-static constexpr uint16_t HP_TAG_EMMA_ACTIVE_POWER_W = 0x9385;   // 0x35 words=2 i32, grid active power W
+static constexpr uint16_t HP_TAG_SECONDARY_ACTIVE_POWER = 0x9385;  // inverter secondary active-power candidate
 static constexpr uint16_t HP_TAG_BUS_CLOCK = 0x7D6E;             // variable words: u32 unix sec, optional u32 seq
 static constexpr uint16_t HP_TAG_SERIAL_NUMBER = 0x9187;         // word payload containing ASCII serial number
 static constexpr float HP_ENERGY_YIELD_SCALE = 0.01f;
@@ -45,6 +45,10 @@ static constexpr float HP_PHASE_VOLTAGE_SCALE = 0.1f;
 static constexpr float HP_PHASE_CURRENT_SCALE = 0.001f;
 static constexpr float HP_GRID_FREQUENCY_SCALE = 0.01f;
 static constexpr size_t HP_DISCOVERED_DEVICE_SLOTS = 16;
+static constexpr size_t HP_DISCOVERED_TAG_SLOTS = 128;
+static constexpr size_t HP_TAG_DEVICE_SLOTS = 8;
+static constexpr size_t HP_TAGS_PER_PAGE = 28;
+static constexpr size_t HP_UART_PENDING_MAX = 2048;
 
 static constexpr uint8_t HP_FC41_SUBFN_UPLOAD_START = 0x05;
 static constexpr uint8_t HP_FC41_SUBFN_UPLOAD_DATA = 0x06;
@@ -87,6 +91,18 @@ static HpPfState hp_pf_inverter;
 
 static uint8_t hp_discovered_devices[HP_DISCOVERED_DEVICE_SLOTS];
 static size_t hp_discovered_device_count = 0;
+
+struct HpDiscoveredTag {
+  uint16_t tag{0};
+  uint8_t devices[HP_TAG_DEVICE_SLOTS]{};
+  bool shared_value_logged[HP_TAG_DEVICE_SLOTS]{};
+  size_t device_count{0};
+};
+
+static HpDiscoveredTag hp_discovered_tags[HP_DISCOVERED_TAG_SLOTS];
+static size_t hp_discovered_tag_count = 0;
+static std::vector<uint8_t> hp_uart_pending;
+static std::string hp_last_device_ids;
 
 static inline bool hp_tlv_type_size(uint8_t type, size_t *out_size);
 static inline uint32_t hp_u32be(const std::vector<uint8_t> &bytes, size_t pos);
@@ -138,31 +154,17 @@ static inline void hp_format_fc41_local_time(uint32_t raw, char *out, size_t out
 }
 
 static inline void hp_publish_total_yield(uint8_t device_id, uint32_t raw_wh) {
+  if (device_id != HP_DEV_INVERTER)
+    return;
   const float kwh = static_cast<float>(raw_wh) * HP_ENERGY_YIELD_SCALE;
-  switch (device_id) {
-    case HP_DEV_EMMA:
-      id(emma_total_yield).publish_state(kwh);
-      break;
-    case HP_DEV_INVERTER:
-      id(inverter_total_yield).publish_state(kwh);
-      break;
-    default:
-      break;
-  }
+  id(inverter_total_yield).publish_state(kwh);
 }
 
 static inline void hp_publish_daily_energy(uint8_t device_id, uint32_t raw_wh) {
+  if (device_id != HP_DEV_INVERTER)
+    return;
   const float kwh = static_cast<float>(raw_wh) * HP_ENERGY_YIELD_SCALE;
-  switch (device_id) {
-    case HP_DEV_EMMA:
-      id(emma_daily_energy).publish_state(kwh);
-      break;
-    case HP_DEV_INVERTER:
-      id(inverter_daily_energy).publish_state(kwh);
-      break;
-    default:
-      break;
-  }
+  id(inverter_daily_energy).publish_state(kwh);
 }
 
 static inline void hp_try_publish_bus_clock_value(uint8_t device_id, uint16_t tag,
@@ -172,8 +174,6 @@ static inline void hp_try_publish_bus_clock_value(uint8_t device_id, uint16_t ta
     return;
 
   const uint32_t unix_sec = hp_u32be(bytes, pos + 3);
-  const bool have_sequence = val_size >= 8;
-  const uint32_t sequence = have_sequence ? hp_u32be(bytes, pos + 7) : 0;
 
   char buf[48];
   hp_format_unix_local_time(unix_sec, buf, sizeof(buf));
@@ -181,13 +181,6 @@ static inline void hp_try_publish_bus_clock_value(uint8_t device_id, uint16_t ta
   switch (device_id) {
     case HP_DEV_INVERTER:
       id(inverter_bus_clock).publish_state(buf);
-      if (have_sequence)
-        id(inverter_bus_clock_sequence).publish_state(static_cast<float>(sequence));
-      break;
-    case HP_DEV_EMMA:
-      id(emma_bus_clock).publish_state(buf);
-      if (have_sequence)
-        id(emma_bus_clock_sequence).publish_state(static_cast<float>(sequence));
       break;
     default:
       break;
@@ -204,14 +197,7 @@ static inline void hp_publish_inverter_times(uint8_t device_id, uint32_t startup
   hp_format_fc41_local_time(shutdown, buf, sizeof(buf));
   id(inverter_shutdown_time).publish_state(buf);
 
-  if (hp_fc41_time_raw_looks_valid(field3)) {
-    hp_format_fc41_local_time(field3, buf, sizeof(buf));
-    id(inverter_time_field3).publish_state(buf);
-  } else {
-    snprintf(buf, sizeof(buf), "raw=%lu (0x%08lX)", static_cast<unsigned long>(field3),
-             static_cast<unsigned long>(field3));
-    id(inverter_time_field3).publish_state(buf);
-  }
+  (void) field3;  // Still rendered in the TLV log; semantics are not established.
 }
 
 static inline void hp_note_device_id(uint8_t device_id) {
@@ -259,7 +245,127 @@ static inline void hp_publish_discovered_device_ids() {
     out += buf;
   }
 
-  id(huawei41_device_ids).publish_state(out);
+  if (out != hp_last_device_ids) {
+    id(huawei41_device_ids).publish_state(out);
+    hp_last_device_ids = out;
+  }
+}
+
+static inline void hp_publish_tag_page(uint8_t device_id, size_t page, const std::string &value) {
+  const char *text = value.empty() ? "(none yet)" : value.c_str();
+  if (device_id == HP_DEV_EMMA) {
+    if (page == 0)
+      id(emma_discovered_tags_1).publish_state(text);
+    else
+      id(emma_discovered_tags_2).publish_state(text);
+  } else if (device_id == HP_DEV_METER) {
+    if (page == 0)
+      id(meter_discovered_tags_1).publish_state(text);
+    else
+      id(meter_discovered_tags_2).publish_state(text);
+  } else if (device_id == HP_DEV_INVERTER) {
+    if (page == 0)
+      id(inverter_discovered_tags_1).publish_state(text);
+    else
+      id(inverter_discovered_tags_2).publish_state(text);
+  }
+}
+
+static inline void hp_publish_discovered_tags_for_device(uint8_t device_id) {
+  uint16_t sorted[HP_DISCOVERED_TAG_SLOTS];
+  size_t count = 0;
+  for (size_t i = 0; i < hp_discovered_tag_count; i++) {
+    for (size_t j = 0; j < hp_discovered_tags[i].device_count; j++) {
+      if (hp_discovered_tags[i].devices[j] == device_id) {
+        sorted[count++] = hp_discovered_tags[i].tag;
+        break;
+      }
+    }
+  }
+  std::sort(sorted, sorted + count);
+
+  for (size_t page = 0; page < 2; page++) {
+    std::string out;
+    const size_t begin = page * HP_TAGS_PER_PAGE;
+    const size_t finish = std::min(count, begin + HP_TAGS_PER_PAGE);
+    char tag_buf[8];
+    for (size_t i = begin; i < finish; i++) {
+      snprintf(tag_buf, sizeof(tag_buf), "%04X", sorted[i]);
+      if (!out.empty())
+        out += " ";
+      out += tag_buf;
+    }
+    hp_publish_tag_page(device_id, page, out);
+  }
+}
+
+static inline void hp_publish_shared_tags() {
+  std::string out;
+  char item[64];
+  for (size_t i = 0; i < hp_discovered_tag_count; i++) {
+    const HpDiscoveredTag &record = hp_discovered_tags[i];
+    if (record.device_count < 2)
+      continue;
+    snprintf(item, sizeof(item), "%04X[", record.tag);
+    std::string entry = item;
+    for (size_t j = 0; j < record.device_count; j++) {
+      snprintf(item, sizeof(item), "%s%u", j ? "," : "", record.devices[j]);
+      entry += item;
+    }
+    entry += "]";
+    if (!out.empty() && out.size() + 1 + entry.size() > 240) {
+      out += " ...";
+      break;
+    }
+    if (!out.empty())
+      out += " ";
+    out += entry;
+  }
+  id(huawei41_shared_tags).publish_state(out.empty() ? "(none observed)" : out.c_str());
+}
+
+static inline void hp_note_tag_observation(uint8_t device_id, uint16_t tag, const std::string &decoded) {
+  HpDiscoveredTag *record = nullptr;
+  for (size_t i = 0; i < hp_discovered_tag_count; i++) {
+    if (hp_discovered_tags[i].tag == tag) {
+      record = &hp_discovered_tags[i];
+      break;
+    }
+  }
+  if (record == nullptr) {
+    if (hp_discovered_tag_count >= HP_DISCOVERED_TAG_SLOTS)
+      return;
+    record = &hp_discovered_tags[hp_discovered_tag_count++];
+    record->tag = tag;
+  }
+
+  size_t device_slot = record->device_count;
+  for (size_t i = 0; i < record->device_count; i++) {
+    if (record->devices[i] == device_id) {
+      device_slot = i;
+      break;
+    }
+  }
+
+  if (device_slot == record->device_count) {
+    if (record->device_count >= HP_TAG_DEVICE_SLOTS)
+      return;
+    record->devices[device_slot] = device_id;
+    record->shared_value_logged[device_slot] = false;
+    record->device_count++;
+    if (record->device_count == 2) {
+      for (size_t i = 0; i < record->device_count; i++)
+        record->shared_value_logged[i] = false;
+    }
+    hp_publish_discovered_tags_for_device(device_id);
+    hp_publish_shared_tags();
+  }
+
+  if (record->device_count > 1 && !record->shared_value_logged[device_slot]) {
+    ESP_LOGI(HUAWEI_PROP_TAG, "Shared FC41 tag sample dev=%u (0x%02X) tag=0x%04X :: %s", device_id, device_id, tag,
+             decoded.c_str());
+    record->shared_value_logged[device_slot] = true;
+  }
 }
 
 static inline uint16_t hp_u16be(uint8_t hi, uint8_t lo) {
@@ -368,7 +474,7 @@ static inline bool hp_modbus_crc_matches(const std::vector<uint8_t> &bytes, size
 }
 
 static inline bool hp_is_count_u16_tag(uint16_t tag) {
-  return (tag >= 0x7700 && tag <= 0x77FF) || tag == HP_TAG_PHASE_VOLTAGE;
+  return (tag >= 0x7700 && tag <= 0x77FF) || tag == HP_TAG_METER_PHASE_VOLTAGE_AUX;
 }
 
 static inline bool hp_tlv_tag_looks_valid(uint16_t tag) {
@@ -442,78 +548,39 @@ static inline bool hp_find_count_u16_tag(const std::vector<uint8_t> &bytes, size
 }
 
 static inline void hp_publish_line_voltage_sensors(uint8_t device_id, const uint16_t *values) {
-  switch (device_id) {
-    case HP_DEV_METER:
-      id(meter_line_ab_voltage).publish_state(static_cast<float>(values[0]) * HP_LINE_VOLTAGE_SCALE);
-      id(meter_line_bc_voltage).publish_state(static_cast<float>(values[1]) * HP_LINE_VOLTAGE_SCALE);
-      id(meter_line_ca_voltage).publish_state(static_cast<float>(values[2]) * HP_LINE_VOLTAGE_SCALE);
-      break;
-    case HP_DEV_EMMA:
-      id(emma_line_ab_voltage_tlv).publish_state(static_cast<float>(values[0]) * HP_LINE_VOLTAGE_SCALE);
-      id(emma_line_bc_voltage_tlv).publish_state(static_cast<float>(values[1]) * HP_LINE_VOLTAGE_SCALE);
-      id(emma_line_ca_voltage_tlv).publish_state(static_cast<float>(values[2]) * HP_LINE_VOLTAGE_SCALE);
-      break;
-    case HP_DEV_INVERTER:
-      id(inverter_line_ab_voltage).publish_state(static_cast<float>(values[0]) * HP_LINE_VOLTAGE_SCALE);
-      id(inverter_line_bc_voltage).publish_state(static_cast<float>(values[1]) * HP_LINE_VOLTAGE_SCALE);
-      id(inverter_line_ca_voltage).publish_state(static_cast<float>(values[2]) * HP_LINE_VOLTAGE_SCALE);
-      break;
-    default:
-      break;
+  if (device_id == HP_DEV_METER) {
+    id(meter_line_ab_voltage).publish_state(static_cast<float>(values[0]) * HP_LINE_VOLTAGE_SCALE);
+    id(meter_line_bc_voltage).publish_state(static_cast<float>(values[1]) * HP_LINE_VOLTAGE_SCALE);
+    id(meter_line_ca_voltage).publish_state(static_cast<float>(values[2]) * HP_LINE_VOLTAGE_SCALE);
+  } else if (device_id == HP_DEV_INVERTER) {
+    id(inverter_line_ab_voltage).publish_state(static_cast<float>(values[0]) * HP_LINE_VOLTAGE_SCALE);
+    id(inverter_line_bc_voltage).publish_state(static_cast<float>(values[1]) * HP_LINE_VOLTAGE_SCALE);
+    id(inverter_line_ca_voltage).publish_state(static_cast<float>(values[2]) * HP_LINE_VOLTAGE_SCALE);
   }
 }
 
 static inline void hp_publish_phase_voltage_sensors(uint8_t device_id, const uint16_t *values) {
-  switch (device_id) {
-    case HP_DEV_METER:
-      id(meter_phase_a_voltage).publish_state(static_cast<float>(values[0]) * HP_PHASE_VOLTAGE_SCALE);
-      id(meter_phase_b_voltage).publish_state(static_cast<float>(values[1]) * HP_PHASE_VOLTAGE_SCALE);
-      id(meter_phase_c_voltage).publish_state(static_cast<float>(values[2]) * HP_PHASE_VOLTAGE_SCALE);
-      break;
-    case HP_DEV_INVERTER:
-      id(inverter_phase_a_voltage).publish_state(static_cast<float>(values[0]) * HP_PHASE_VOLTAGE_SCALE);
-      id(inverter_phase_b_voltage).publish_state(static_cast<float>(values[1]) * HP_PHASE_VOLTAGE_SCALE);
-      id(inverter_phase_c_voltage).publish_state(static_cast<float>(values[2]) * HP_PHASE_VOLTAGE_SCALE);
-      break;
-    case HP_DEV_EMMA:
-      break;
-    default:
-      break;
-  }
+  if (device_id != HP_DEV_INVERTER)
+    return;
+  id(inverter_phase_a_voltage).publish_state(static_cast<float>(values[0]) * HP_PHASE_VOLTAGE_SCALE);
+  id(inverter_phase_b_voltage).publish_state(static_cast<float>(values[1]) * HP_PHASE_VOLTAGE_SCALE);
+  id(inverter_phase_c_voltage).publish_state(static_cast<float>(values[2]) * HP_PHASE_VOLTAGE_SCALE);
 }
 
 static inline void hp_publish_phase_current_sensors(uint8_t device_id, const int32_t *amps_raw) {
-  switch (device_id) {
-    case HP_DEV_INVERTER:
-      id(inverter_phase_a_current).publish_state(static_cast<float>(amps_raw[0]) * HP_PHASE_CURRENT_SCALE);
-      id(inverter_phase_b_current).publish_state(static_cast<float>(amps_raw[1]) * HP_PHASE_CURRENT_SCALE);
-      id(inverter_phase_c_current).publish_state(static_cast<float>(amps_raw[2]) * HP_PHASE_CURRENT_SCALE);
-      break;
-    case HP_DEV_EMMA:
-      id(emma_phase_a_current).publish_state(static_cast<float>(amps_raw[0]) * HP_PHASE_CURRENT_SCALE);
-      id(emma_phase_b_current).publish_state(static_cast<float>(amps_raw[1]) * HP_PHASE_CURRENT_SCALE);
-      id(emma_phase_c_current).publish_state(static_cast<float>(amps_raw[2]) * HP_PHASE_CURRENT_SCALE);
-      break;
-    default:
-      break;
-  }
+  if (device_id != HP_DEV_INVERTER)
+    return;
+  id(inverter_phase_a_current).publish_state(static_cast<float>(amps_raw[0]) * HP_PHASE_CURRENT_SCALE);
+  id(inverter_phase_b_current).publish_state(static_cast<float>(amps_raw[1]) * HP_PHASE_CURRENT_SCALE);
+  id(inverter_phase_c_current).publish_state(static_cast<float>(amps_raw[2]) * HP_PHASE_CURRENT_SCALE);
 }
 
 static inline void hp_publish_phase_active_power_sensors(uint8_t device_id, const int32_t *watts) {
-  switch (device_id) {
-    case HP_DEV_INVERTER:
-      id(inverter_phase_a_power).publish_state(static_cast<float>(watts[0]));
-      id(inverter_phase_b_power).publish_state(static_cast<float>(watts[1]));
-      id(inverter_phase_c_power).publish_state(static_cast<float>(watts[2]));
-      break;
-    case HP_DEV_EMMA:
-      id(emma_phase_a_power).publish_state(static_cast<float>(watts[0]));
-      id(emma_phase_b_power).publish_state(static_cast<float>(watts[1]));
-      id(emma_phase_c_power).publish_state(static_cast<float>(watts[2]));
-      break;
-    default:
-      break;
-  }
+  if (device_id != HP_DEV_INVERTER)
+    return;
+  id(inverter_phase_a_power).publish_state(static_cast<float>(watts[0]));
+  id(inverter_phase_b_power).publish_state(static_cast<float>(watts[1]));
+  id(inverter_phase_c_power).publish_state(static_cast<float>(watts[2]));
 }
 
 static inline void hp_publish_grid_freq_and_phase_v(uint8_t device_id, const uint16_t *values) {
@@ -546,73 +613,45 @@ static inline void hp_try_publish_count_tag(uint8_t device_id, uint16_t tag, con
     values[n] = hp_u16be(bytes[pos + 4 + (2 * n)], bytes[pos + 5 + (2 * n)]);
   }
 
-  if (tag == HP_TAG_LINE_VOLTAGE) {
+  if (device_id == HP_DEV_METER && tag == HP_TAG_LINE_VOLTAGE) {
     hp_publish_line_voltage_sensors(device_id, values);
-  } else if (tag == HP_TAG_PHASE_VOLTAGE || tag == HP_TAG_EMMA_PHASE_VOLTAGE || tag == HP_TAG_PHASE_VOLTAGE_COUNT) {
-    hp_publish_phase_voltage_sensors(device_id, values);
   }
 }
 
 static inline void hp_try_publish_phase_sensors(uint8_t device_id, const std::vector<uint8_t> &bytes,
                                                 size_t payload_start, size_t payload_end) {
   uint16_t line_v[3]{};
-  uint16_t phase_v[3]{};
   uint16_t grid_phase_v[4]{};
   const bool has_grid_phase =
       hp_find_count_u16_tag(bytes, payload_start, payload_end, HP_TAG_GRID_FREQ_PHASE_V, 4, grid_phase_v);
   const bool has_line =
       hp_find_count_u16_tag(bytes, payload_start, payload_end, HP_TAG_LINE_VOLTAGE, 3, line_v);
-  const bool has_phase = hp_find_count_u16_tag(bytes, payload_start, payload_end, HP_TAG_PHASE_VOLTAGE, 3, phase_v) ||
-                         hp_find_count_u16_tag(bytes, payload_start, payload_end, HP_TAG_EMMA_PHASE_VOLTAGE, 3,
-                                               phase_v) ||
-                         hp_find_count_u16_tag(bytes, payload_start, payload_end, HP_TAG_PHASE_VOLTAGE_COUNT, 3,
-                                               phase_v);
   if (has_grid_phase)
     hp_publish_grid_freq_and_phase_v(device_id, grid_phase_v);
   if (has_line)
     hp_publish_line_voltage_sensors(device_id, line_v);
-  if (has_phase)
-    hp_publish_phase_voltage_sensors(device_id, phase_v);
 }
-
-static inline bool hp_device_is_emma(uint8_t device_id) { return device_id == HP_DEV_EMMA; }
 
 static inline std::string hp_format_count_tag(uint8_t device_id, uint16_t tag, const uint16_t *values, uint16_t count) {
   std::string out;
   char buf[48];
 
-  if (tag == HP_TAG_LINE_VOLTAGE && count == 3) {
+  if (device_id == HP_DEV_METER && tag == HP_TAG_LINE_VOLTAGE && count == 3) {
     snprintf(buf, sizeof(buf), "tag=0x%04X line_V AB=%.1f BC=%.1f CA=%.1f", tag,
              values[0] * HP_LINE_VOLTAGE_SCALE, values[1] * HP_LINE_VOLTAGE_SCALE,
              values[2] * HP_LINE_VOLTAGE_SCALE);
     return buf;
   }
-  if (tag == HP_TAG_GRID_FREQ_PHASE_V && count == 4) {
+  if (device_id == HP_DEV_METER && tag == HP_TAG_GRID_FREQ_PHASE_V && count == 4) {
     snprintf(buf, sizeof(buf), "tag=0x%04X freq=%.2fHz A=%.1fV B=%.1fV C=%.1fV", tag,
              values[0] * HP_GRID_FREQUENCY_SCALE, values[1] * HP_PHASE_VOLTAGE_SCALE,
              values[2] * HP_PHASE_VOLTAGE_SCALE, values[3] * HP_PHASE_VOLTAGE_SCALE);
     return buf;
   }
-  if (tag == HP_TAG_PHASE_VOLTAGE && count == 3) {
-    snprintf(buf, sizeof(buf), "tag=0x%04X phase_V A=%.1f B=%.1f C=%.1f", tag,
-             values[0] * HP_PHASE_VOLTAGE_SCALE, values[1] * HP_PHASE_VOLTAGE_SCALE,
-             values[2] * HP_PHASE_VOLTAGE_SCALE);
-    return buf;
-  }
-  if (tag == HP_TAG_EMMA_PHASE_VOLTAGE && count == 3) {
-    if (hp_device_is_emma(device_id)) {
-      snprintf(buf, sizeof(buf), "tag=0x%04X EMMA phase_V A=%.1f B=%.1f C=%.1f", tag,
-               values[0] * HP_PHASE_VOLTAGE_SCALE, values[1] * HP_PHASE_VOLTAGE_SCALE,
-               values[2] * HP_PHASE_VOLTAGE_SCALE);
-    } else {
-      snprintf(buf, sizeof(buf), "tag=0x%04X phase_V A=%.1f B=%.1f C=%.1f", tag,
-               values[0] * HP_PHASE_VOLTAGE_SCALE, values[1] * HP_PHASE_VOLTAGE_SCALE,
-               values[2] * HP_PHASE_VOLTAGE_SCALE);
-    }
-    return buf;
-  }
-  if (tag == HP_TAG_PHASE_VOLTAGE_COUNT && count == 3) {
-    snprintf(buf, sizeof(buf), "tag=0x%04X phase_V A=%.1f B=%.1f C=%.1f", tag,
+  if (device_id == HP_DEV_METER &&
+      (tag == HP_TAG_METER_PHASE_VOLTAGE_AUX || tag == HP_TAG_METER_PHASE_VOLTAGE ||
+       tag == HP_TAG_METER_PHASE_VOLTAGE_ALT) && count == 3) {
+    snprintf(buf, sizeof(buf), "tag=0x%04X candidate_phase_V A=%.1f B=%.1f C=%.1f", tag,
              values[0] * HP_PHASE_VOLTAGE_SCALE, values[1] * HP_PHASE_VOLTAGE_SCALE,
              values[2] * HP_PHASE_VOLTAGE_SCALE);
     return buf;
@@ -709,8 +748,8 @@ static inline std::string hp_format_typed_tlv(uint8_t device_id, const std::vect
       snprintf(line, sizeof(line), "tag=0x%04X Q=%ldvar", tag, static_cast<long>(i32));
       return line;
     }
-    if (tag == HP_TAG_REACTIVE_AUX) {
-      snprintf(line, sizeof(line), "tag=0x%04X Q_aux=%ld", tag, static_cast<long>(i32));
+    if (device_id == HP_DEV_INVERTER && tag == HP_TAG_INVERTER_CANDIDATE_93C5) {
+      snprintf(line, sizeof(line), "tag=0x%04X candidate_i32=%ld", tag, static_cast<long>(i32));
       return line;
     }
     if (tag == HP_TAG_TOTAL_YIELD && i32 >= 0) {
@@ -737,12 +776,8 @@ static inline std::string hp_format_typed_tlv(uint8_t device_id, const std::vect
       snprintf(line, sizeof(line), "tag=0x%04X battery_P=%ldW", tag, static_cast<long>(i32));
       return line;
     }
-    if (tag == HP_TAG_EMMA_ACTIVE_POWER_W) {
-      if (hp_device_is_emma(device_id)) {
-        snprintf(line, sizeof(line), "tag=0x%04X EMMA_P=%ldW", tag, static_cast<long>(i32));
-      } else {
-        snprintf(line, sizeof(line), "tag=0x%04X P_act=%ldW", tag, static_cast<long>(i32));
-      }
+    if (device_id == HP_DEV_INVERTER && tag == HP_TAG_SECONDARY_ACTIVE_POWER) {
+      snprintf(line, sizeof(line), "tag=0x%04X candidate_P=%ldW", tag, static_cast<long>(i32));
       return line;
     }
     const std::string scalar = hp_format_scalar_i32_u32(i32);
@@ -753,12 +788,8 @@ static inline std::string hp_format_typed_tlv(uint8_t device_id, const std::vect
     const int16_t v1 = hp_i16be(bytes[pos + 3], bytes[pos + 4]);
     const int16_t v2 = hp_i16be(bytes[pos + 5], bytes[pos + 6]);
     const int16_t v3 = hp_i16be(bytes[pos + 7], bytes[pos + 8]);
-    if (tag == HP_TAG_EMMA_PHASE_ACTIVE_POWER) {
-      if (hp_device_is_emma(device_id)) {
-        snprintf(line, sizeof(line), "tag=0x%04X EMMA P A=%dW B=%dW C=%dW", tag, v1, v2, v3);
-      } else {
-        snprintf(line, sizeof(line), "tag=0x%04X P A=%dW B=%dW C=%dW", tag, v1, v2, v3);
-      }
+    if (device_id == HP_DEV_INVERTER && tag == HP_TAG_PHASE_ACTIVE_POWER_I16) {
+      snprintf(line, sizeof(line), "tag=0x%04X P A=%dW B=%dW C=%dW", tag, v1, v2, v3);
       return line;
     }
     snprintf(line, sizeof(line), "tag=0x%04X i16[3]=%d,%d,%d", tag, v1, v2, v3);
@@ -792,14 +823,9 @@ static inline std::string hp_format_typed_tlv(uint8_t device_id, const std::vect
                static_cast<long>(v2), static_cast<long>(v3));
       return line;
     }
-    if (tag == HP_TAG_EMMA_PHASE_ACTIVE_POWER_I32) {
-      if (hp_device_is_emma(device_id)) {
-        snprintf(line, sizeof(line), "tag=0x%04X EMMA P A=%ldW B=%ldW C=%ldW", tag, static_cast<long>(v1),
-                 static_cast<long>(v2), static_cast<long>(v3));
-      } else {
-        snprintf(line, sizeof(line), "tag=0x%04X P A=%ldW B=%ldW C=%ldW", tag, static_cast<long>(v1),
-                 static_cast<long>(v2), static_cast<long>(v3));
-      }
+    if (device_id == HP_DEV_INVERTER && tag == HP_TAG_PHASE_ACTIVE_POWER_ALT) {
+      snprintf(line, sizeof(line), "tag=0x%04X P A=%ldW B=%ldW C=%ldW", tag, static_cast<long>(v1),
+               static_cast<long>(v2), static_cast<long>(v3));
       return line;
     }
     if (tag == HP_TAG_PHASE_VOLTAGE_U32) {
@@ -993,10 +1019,6 @@ static inline void hp_try_publish_phase_from_typed_tlv(uint8_t device_id, uint16
   if (tag == HP_TAG_ACTIVE_POWER && type == 0x02) {
     const float watts = static_cast<float>(hp_i32be(bytes, pos + 3));
     switch (device_id) {
-      case HP_DEV_EMMA:
-        id(emma_active_power).publish_state(watts);
-        hp_update_power_factor(device_id, true, watts, false, 0.0f);
-        break;
       case HP_DEV_INVERTER:
         id(inverter_active_power).publish_state(watts);
         hp_update_power_factor(device_id, true, watts, false, 0.0f);
@@ -1009,10 +1031,6 @@ static inline void hp_try_publish_phase_from_typed_tlv(uint8_t device_id, uint16
   if (tag == HP_TAG_REACTIVE_POWER && type == 0x02) {
     const float q_var = static_cast<float>(hp_i32be(bytes, pos + 3));
     switch (device_id) {
-      case HP_DEV_EMMA:
-        id(emma_reactive_power).publish_state(q_var);
-        hp_update_power_factor(device_id, false, 0.0f, true, q_var);
-        break;
       case HP_DEV_INVERTER:
         id(inverter_reactive_power).publish_state(q_var);
         hp_update_power_factor(device_id, false, 0.0f, true, q_var);
@@ -1020,13 +1038,6 @@ static inline void hp_try_publish_phase_from_typed_tlv(uint8_t device_id, uint16
       default:
         break;
     }
-    return;
-  }
-  if (tag == HP_TAG_REACTIVE_AUX && type == 0x02) {
-    if (device_id != HP_DEV_INVERTER)
-      return;
-    const float q_var = static_cast<float>(hp_i32be(bytes, pos + 3));
-    id(inverter_reactive_power_aux).publish_state(q_var);
     return;
   }
   if (tag == HP_TAG_TOTAL_YIELD && type == 0x02) {
@@ -1066,14 +1077,6 @@ static inline void hp_try_publish_phase_from_typed_tlv(uint8_t device_id, uint16
     id(inverter_battery_total_charge).publish_state(kwh);
     return;
   }
-  if (tag == HP_TAG_EMMA_ACTIVE_POWER_W && type == 0x02) {
-    if (device_id != HP_DEV_EMMA)
-      return;
-    const int32_t watts = hp_i32be(bytes, pos + 3);
-    id(emma_active_power).publish_state(static_cast<float>(watts));
-    hp_update_power_factor(device_id, true, static_cast<float>(watts), false, 0.0f);
-    return;
-  }
   if (tag == HP_TAG_PHASE_CURRENT && type == 0x06) {
     const int32_t currents[3] = {hp_i32be(bytes, pos + 3), hp_i32be(bytes, pos + 7), hp_i32be(bytes, pos + 11)};
     hp_publish_phase_current_sensors(device_id, currents);
@@ -1084,8 +1087,8 @@ static inline void hp_try_publish_phase_from_typed_tlv(uint8_t device_id, uint16
     hp_publish_phase_active_power_sensors(device_id, watts);
     return;
   }
-  if (tag == HP_TAG_EMMA_PHASE_ACTIVE_POWER_I32 && type == 0x06) {
-    if (device_id != HP_DEV_EMMA)
+  if (tag == HP_TAG_PHASE_ACTIVE_POWER_ALT && type == 0x06) {
+    if (device_id != HP_DEV_INVERTER)
       return;
     const int32_t watts[3] = {hp_i32be(bytes, pos + 3), hp_i32be(bytes, pos + 7), hp_i32be(bytes, pos + 11)};
     hp_publish_phase_active_power_sensors(device_id, watts);
@@ -1100,7 +1103,9 @@ static inline void hp_try_publish_phase_from_typed_tlv(uint8_t device_id, uint16
   }
 
   uint16_t voltages[3]{};
-  if (tag == HP_TAG_EMMA_PHASE_ACTIVE_POWER && type == 0x03) {
+  if (tag == HP_TAG_PHASE_ACTIVE_POWER_I16 && type == 0x03) {
+    if (device_id != HP_DEV_INVERTER)
+      return;
     const int32_t watts[3] = {hp_i16be(bytes[pos + 3], bytes[pos + 4]), hp_i16be(bytes[pos + 5], bytes[pos + 6]),
                               hp_i16be(bytes[pos + 7], bytes[pos + 8])};
     hp_publish_phase_active_power_sensors(device_id, watts);
@@ -1151,6 +1156,7 @@ static inline void hp_walk_current_data_tlvs(const std::vector<uint8_t> &bytes, 
 
     const std::string entry = hp_format_current_data_tlv(device_id, bytes, pos, tag, word_count, val_size);
     entries.push_back(entry);
+    hp_note_tag_observation(device_id, tag, entry);
 
     hp_try_publish_bus_clock_value(device_id, tag, bytes, pos, val_size);
     hp_try_publish_serial_number_value(device_id, tag, bytes, pos, val_size);
@@ -1184,6 +1190,7 @@ static inline std::string hp_walk_tlv_payload(const std::vector<uint8_t> &bytes,
     }
 
     const uint16_t tag = hp_u16be(bytes[pos], bytes[pos + 1]);
+    hp_note_tag_observation(device_id, tag, entry);
     if (is_typed && bytes[pos + 2] == 0x0A) {
       hp_try_publish_bus_clock(device_id, tag, 0x0A, bytes, pos);
     }
@@ -1193,8 +1200,9 @@ static inline std::string hp_walk_tlv_payload(const std::vector<uint8_t> &bytes,
     if (publish_phase) {
       if (is_typed) {
         hp_try_publish_phase_from_typed_tlv(device_id, tag, bytes[pos + 2], bytes, pos);
-      } else if (tag == HP_TAG_LINE_VOLTAGE || tag == HP_TAG_PHASE_VOLTAGE || tag == HP_TAG_GRID_FREQ_PHASE_V ||
-                 tag == HP_TAG_EMMA_PHASE_VOLTAGE || tag == HP_TAG_PHASE_VOLTAGE_COUNT) {
+      } else if (tag == HP_TAG_LINE_VOLTAGE || tag == HP_TAG_METER_PHASE_VOLTAGE_AUX ||
+                 tag == HP_TAG_GRID_FREQ_PHASE_V || tag == HP_TAG_METER_PHASE_VOLTAGE ||
+                 tag == HP_TAG_METER_PHASE_VOLTAGE_ALT) {
         hp_try_publish_count_tag(device_id, tag, bytes, pos);
       }
     }
@@ -1433,58 +1441,99 @@ static inline void huawei_decode_proprietary_uart_buffer(const std::vector<uint8
   // Request and response upload PDUs share the same function/sub-function pair.
   // Keep the complete UART burst opaque because this RX-only sniffer cannot
   // reliably determine direction without decoding the upload-specific body.
-  if (bytes[1] == 0x41 && hp_is_upload_subfunction(bytes[2])) {
+  if (hp_uart_pending.empty() && bytes[1] == 0x41 && hp_is_upload_subfunction(bytes[2])) {
     hp_log_opaque_upload_buffer(bytes);
     hp_publish_discovered_device_ids();
     return;
   }
 
   // Standard Modbus exception response for proprietary function 0x41.
-  if (bytes[1] == HP_FC41_EXCEPTION_FUNCTION) {
+  if (hp_uart_pending.empty() && bytes[1] == HP_FC41_EXCEPTION_FUNCTION) {
     hp_log_exception_buffer(bytes);
     hp_publish_discovered_device_ids();
     return;
   }
 
+  if (hp_uart_pending.size() + bytes.size() > HP_UART_PENDING_MAX) {
+    ESP_LOGW(HUAWEI_PROP_TAG, "FC41 RX accumulator overflow (%u + %u bytes); resetting stream",
+             static_cast<unsigned>(hp_uart_pending.size()), static_cast<unsigned>(bytes.size()));
+    hp_uart_pending.clear();
+  }
+  hp_uart_pending.insert(hp_uart_pending.end(), bytes.begin(), bytes.end());
+
   bool found = false;
-
-  for (size_t p = 0; p + 3 < bytes.size(); p++) {
-    if (bytes[p + 1] != 0x41)
+  size_t p = 0;
+  while (p + 4 <= hp_uart_pending.size()) {
+    if (hp_uart_pending[p + 1] != 0x41) {
+      p++;
       continue;
+    }
 
-    const uint8_t subfunction = bytes[p + 2];
-    const bool direct_tag = hp_is_count_u16_tag(hp_u16be(subfunction, bytes[p + 3]));
-    if (subfunction != HP_FC41_SUBFN_CURRENT_DATA && subfunction != HP_FC41_SUBFN_REPORT && !direct_tag)
+    const uint8_t subfunction = hp_uart_pending[p + 2];
+    if (hp_is_upload_subfunction(subfunction)) {
+      std::vector<uint8_t> upload_chunk(hp_uart_pending.begin() + p, hp_uart_pending.end());
+      hp_log_opaque_upload_buffer(upload_chunk);
+      p = hp_uart_pending.size();
+      found = true;
+      break;
+    }
+    const bool direct_tag = hp_is_count_u16_tag(hp_u16be(subfunction, hp_uart_pending[p + 3]));
+    if (subfunction != HP_FC41_SUBFN_CURRENT_DATA && subfunction != HP_FC41_SUBFN_REPORT && !direct_tag) {
+      p++;
       continue;
+    }
 
     size_t payload_start = 0;
     size_t payload_end = 0;
     size_t frame_end = 0;
-    if (!hp_0x41_frame_bounds(bytes, p, payload_start, payload_end, frame_end)) {
-      if (subfunction == HP_FC41_SUBFN_CURRENT_DATA || subfunction == HP_FC41_SUBFN_REPORT) {
-        ESP_LOGW(HUAWEI_PROP_TAG, "FC41 truncated dev=%u (0x%02X) subfn=0x%02X (%s) bytes=%u", bytes[p], bytes[p],
-                 subfunction, hp_subfunction_name(subfunction), static_cast<unsigned>(bytes.size() - p));
-        hp_log_hex_chunks(bytes, p, bytes.size() - p, "truncated-raw");
+    if (subfunction == HP_FC41_SUBFN_CURRENT_DATA) {
+      frame_end = p + 4 + hp_uart_pending[p + 3] + 2;
+    } else if (subfunction == HP_FC41_SUBFN_REPORT) {
+      if (p + 5 > hp_uart_pending.size())
+        break;
+      frame_end = p + 5 + hp_u16be(hp_uart_pending[p + 3], hp_uart_pending[p + 4]) + 2;
+    } else {
+      if (p + 6 > hp_uart_pending.size())
+        break;
+      const uint16_t count = hp_u16be(hp_uart_pending[p + 4], hp_uart_pending[p + 5]);
+      if (count == 0 || count > 16) {
+        p++;
+        continue;
       }
+      frame_end = p + 2 + 4 + (2 * count) + 2;
+    }
+
+    if (frame_end - p > HP_UART_PENDING_MAX) {
+      p++;
+      continue;
+    }
+    if (frame_end > hp_uart_pending.size()) {
+      // A valid candidate header at the end of a UART callback is an incomplete
+      // frame, not a parse error. Retain it for the next callback.
+      break;
+    }
+    if (!hp_0x41_frame_bounds(hp_uart_pending, p, payload_start, payload_end, frame_end)) {
+      p++;
       continue;
     }
 
-    if (!hp_modbus_crc_matches(bytes, p, frame_end)) {
-      ESP_LOGW(HUAWEI_PROP_TAG, "FC41 CRC mismatch dev=%u (0x%02X) subfn=0x%02X (%s)", bytes[p], bytes[p],
+    if (!hp_modbus_crc_matches(hp_uart_pending, p, frame_end)) {
+      ESP_LOGW(HUAWEI_PROP_TAG, "FC41 CRC mismatch dev=%u (0x%02X) subfn=0x%02X (%s)", hp_uart_pending[p],
+               hp_uart_pending[p],
                subfunction, hp_subfunction_name(subfunction));
+      p++;
       continue;
     }
 
-    hp_note_device_id(bytes[p]);
-    hp_decode_0x41_frame(bytes, p, frame_end);
+    hp_note_device_id(hp_uart_pending[p]);
+    hp_decode_0x41_frame(hp_uart_pending, p, frame_end);
     found = true;
-
-    if (frame_end > p + 1)
-      p = frame_end - 1;
+    p = frame_end;
   }
 
-  if (!found)
-    return;
+  if (p > 0)
+    hp_uart_pending.erase(hp_uart_pending.begin(), hp_uart_pending.begin() + p);
 
-  hp_publish_discovered_device_ids();
+  if (found)
+    hp_publish_discovered_device_ids();
 }

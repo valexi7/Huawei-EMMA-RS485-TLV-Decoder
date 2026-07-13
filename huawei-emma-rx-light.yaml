@@ -1,0 +1,14 @@
+substitutions:
+  huawei_rx_light_id: onboard_led
+  huawei_rx_light_duration: 40ms
+
+script:
+  - id: !extend huawei_rx_activity
+    then:
+      - light.turn_on:
+          id: ${huawei_rx_light_id}
+          transition_length: 0s
+      - delay: ${huawei_rx_light_duration}
+      - light.turn_off:
+          id: ${huawei_rx_light_id}
+          transition_length: 0s

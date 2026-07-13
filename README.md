@@ -9,12 +9,17 @@ sub-function `0x35` is parsed as:
 ```text
 tag       2 bytes
 word count 1 byte
-payload   word count × 2 bytes
+payload   word count x 2 bytes
 ```
 
 File-upload sub-functions `0x05`, `0x06`, and `0x0C` are identified and logged
 as opaque frames; their contents are deliberately not decoded. Function `0xC1`
 is logged as an abnormal response with its standard Modbus exception code.
+
+UART debug callbacks may split a Modbus frame. The decoder keeps incomplete
+bytes in a bounded accumulator and waits for the remainder before checking the
+CRC or parsing TLVs. A callback boundary is therefore no longer reported as a
+truncated FC41 payload.
 
 ## Minimal ESP32 configuration
 
@@ -73,6 +78,44 @@ firmware to put an updated decoder on the device; a running device does not
 self-update merely because the repository changed. Pin `ref` to a release tag
 or commit when reproducible builds are more important than automatic tracking.
 
+### Optional RX activity light
+
+The base package calls a no-op RX activity hook for every UART callback, so it
+remains portable to boards without an LED. If your local configuration exposes
+the onboard LED as a `light` with ID `onboard_led`, include the optional package
+file too:
+
+```yaml
+packages:
+  huawei_emma:
+    url: https://github.com/valexi7/Huawei-EMMA-RS485-TLV-Decoder
+    ref: main
+    files:
+      - huawei-emma-rs485.yaml
+      - huawei-emma-rx-light.yaml
+    refresh: 1d
+```
+
+A common GPIO-backed light configuration looks like this; adjust the pin and
+inversion for the chosen board:
+
+```yaml
+output:
+  - platform: gpio
+    id: onboard_led_output
+    pin:
+      number: GPIO2
+      inverted: true
+
+light:
+  - platform: binary
+    id: onboard_led
+    output: onboard_led_output
+```
+
+Override `huawei_rx_light_id` if your light uses another ID, and
+`huawei_rx_light_duration` to change the default 40 ms flash.
+
 ## Hardware
 
 Do not connect an ESP GPIO directly to RS485 A/B. Use a 3.3 V-compatible,
@@ -80,9 +123,9 @@ preferably isolated RS485 receiver/transceiver:
 
 1. Connect the bus A/B pair to the receiver A/B terminals.
 2. Connect the receiver's RO output to `${huawei_uart_rx_pin}`.
-3. Hold the receiver/transceiver in receive-only mode. The supplied package
-   never transmits and does not configure board-specific DE, RE, power-enable,
-   or status-LED pins.
+3. Hold the receiver/transceiver in receive-only mode. The supplied base
+   package never transmits and does not configure board-specific DE, RE,
+   power-enable, or LED pins.
 4. Add any enable pins required by your chosen board to your local YAML.
 
 The defaults are 9600 baud, 8 data bits, no parity, and one stop bit. Change
@@ -113,12 +156,22 @@ the repository's local `components` directory while testing.
 
 ## Repository layout
 
-- `huawei-emma-rs485.yaml` — reusable ESPHome sensors and UART decoder package.
-- `components/huawei_emma_tlv/` — Git-backed parser component.
-- `esp32.yaml` — deliberately minimal device example.
-- `extras/` — inactive Modbus polling/reference helpers retained from the
+- `huawei-emma-rs485.yaml` - reusable ESPHome sensors and UART decoder package.
+- `huawei-emma-rx-light.yaml` - optional RX activity light hook.
+- `components/huawei_emma_tlv/` - Git-backed parser component.
+- `esp32.yaml` - deliberately minimal device example.
+- `extras/` - inactive Modbus polling/reference helpers retained from the
   original work; they are not loaded by the TLV package.
 
-Unknown tags are logged for reverse-engineering but do not create diagnostic
-entities. This avoids publishing guessed or nonsensical values to Home
-Assistant.
+The package exposes discovered-tag text sensors for known device IDs 0, 2, and
+12 (split across two pages), plus a shared-tag sensor. A tag seen under multiple
+device IDs is logged once per device with its decoded sample, making possible
+cross-device meanings visible without flooding the log. Unknown tags do not
+create guessed numeric entities.
+
+In the July 2026 capture used for this revision, device 2 had 16 tags and device
+12 had 52 tags, with no tag ID present in both sets. Known decoding is therefore
+device-scoped. In particular, meter tags `0x7729`, `0x7734`, and `0x9C52` are
+retained as voltage-like candidates in logs/discovery but do not overwrite the
+phase-voltage sensors; canonical meter phase voltage and frequency currently
+come from `0x7733`.
