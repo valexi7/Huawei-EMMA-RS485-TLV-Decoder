@@ -116,6 +116,41 @@ light:
 Override `huawei_rx_light_id` if your light uses another ID, and
 `huawei_rx_light_duration` to change the default 40 ms flash.
 
+### Optional Google Sheets logging
+
+Add the deployed Google Apps Script URL to the ESPHome `secrets.yaml` file:
+
+```yaml
+google_sheets_url: https://script.google.com/macros/s/REPLACE_ME/exec
+```
+
+Then load the Sheets exporter alongside the base package:
+
+```yaml
+packages:
+  huawei_emma:
+    url: https://github.com/valexi7/Huawei-EMMA-RS485-TLV-Decoder
+    ref: main
+    files:
+      - huawei-emma-rs485.yaml
+      - huawei-emma-google-sheets.yaml
+    refresh: 1d
+```
+
+Every CRC-valid decoded FC41 frame is posted once as JSON:
+
+```json
+{"frame":"dev=12 ... | tag=0x7D5F ..."}
+```
+
+The Apps Script can write its server timestamp to the `timestamp` column and
+the JSON `frame` value to `rs485Frame`. Upload sub-functions remain opaque and
+are not exported. The optional package disables TLS certificate verification
+to save flash; traffic is encrypted, but the remote server identity is not
+verified. ESPHome HTTP actions are synchronous, so a slow Sheets endpoint can
+delay UART processing; use this exporter for diagnostics and increase the UART
+RX buffer if requests regularly take longer than the interval between frames.
+
 ## Hardware
 
 Do not connect an ESP GPIO directly to RS485 A/B. Use a 3.3 V-compatible,
@@ -158,16 +193,19 @@ the repository's local `components` directory while testing.
 
 - `huawei-emma-rs485.yaml` - reusable ESPHome sensors and UART decoder package.
 - `huawei-emma-rx-light.yaml` - optional RX activity light hook.
+- `huawei-emma-google-sheets.yaml` - optional decoded-frame HTTP exporter.
 - `components/huawei_emma_tlv/` - Git-backed parser component.
 - `esp32.yaml` - deliberately minimal device example.
 - `extras/` - inactive Modbus polling/reference helpers retained from the
   original work; they are not loaded by the TLV package.
 
 The package exposes discovered-tag text sensors for known device IDs 0, 2, and
-12 (split across two pages), plus a shared-tag sensor. A tag seen under multiple
-device IDs is logged once per device with its decoded sample, making possible
-cross-device meanings visible without flooding the log. Unknown tags do not
-create guessed numeric entities.
+12 (split across two pages), plus a shared-tag sensor. Tags belonging to other
+device IDs are shown on five additional pages as `device:tag` hexadecimal
+pairs, for example `07:7D5F`. A tag seen under multiple device IDs is logged
+once per device with its decoded sample, making possible cross-device meanings
+visible without flooding the log. Unknown tags do not create guessed numeric
+entities.
 
 In the July 2026 capture used for this revision, device 2 had 16 tags and device
 12 had 52 tags, with no tag ID present in both sets. Known decoding is therefore

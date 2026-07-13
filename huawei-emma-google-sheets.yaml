@@ -1,0 +1,18 @@
+http_request:
+  useragent: esphome/rs485-logger
+  timeout: 10s
+  # Certificate verification is disabled to avoid bundling CA certificates on
+  # small ESP32 builds. The request is encrypted but the server is not verified.
+  verify_ssl: false
+
+text_sensor:
+  - id: !extend huawei41_decoded_frame_export
+    on_value:
+      then:
+        - http_request.post:
+            url: !secret google_sheets_url
+            request_headers:
+              Content-Type: application/json
+            json:
+              frame: !lambda |-
+                return x;

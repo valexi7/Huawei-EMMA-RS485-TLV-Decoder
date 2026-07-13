@@ -48,6 +48,7 @@ static constexpr size_t HP_DISCOVERED_DEVICE_SLOTS = 16;
 static constexpr size_t HP_DISCOVERED_TAG_SLOTS = 128;
 static constexpr size_t HP_TAG_DEVICE_SLOTS = 8;
 static constexpr size_t HP_TAGS_PER_PAGE = 28;
+static constexpr size_t HP_UNKNOWN_TAG_PAGES = 5;
 static constexpr size_t HP_UART_PENDING_MAX = 2048;
 
 static constexpr uint8_t HP_FC41_SUBFN_UPLOAD_START = 0x05;
@@ -324,6 +325,73 @@ static inline void hp_publish_shared_tags() {
   id(huawei41_shared_tags).publish_state(out.empty() ? "(none observed)" : out.c_str());
 }
 
+// Optional/newer entities are resolved at runtime instead of referenced with
+// id(...). This keeps cached older YAML compatible with newer decoder source.
+static inline void hp_publish_optional_text_sensor(const char *entity_name, const std::string &value) {
+  const uint32_t key = esphome::fnv1_hash_object_id(entity_name, strlen(entity_name));
+  for (auto *sensor : App.get_text_sensors()) {
+    if (sensor->get_object_id_hash() == key) {
+      sensor->publish_state(value);
+      return;
+    }
+  }
+}
+
+static inline void hp_publish_unknown_tag_page(size_t page, const std::string &value) {
+  const char *text = value.empty() ? "(none yet)" : value.c_str();
+  switch (page) {
+    case 0:
+      hp_publish_optional_text_sensor("Unknown FC41 Device Tags 1", text);
+      break;
+    case 1:
+      hp_publish_optional_text_sensor("Unknown FC41 Device Tags 2", text);
+      break;
+    case 2:
+      hp_publish_optional_text_sensor("Unknown FC41 Device Tags 3", text);
+      break;
+    case 3:
+      hp_publish_optional_text_sensor("Unknown FC41 Device Tags 4", text);
+      break;
+    case 4:
+      hp_publish_optional_text_sensor("Unknown FC41 Device Tags 5", text);
+      break;
+    default:
+      break;
+  }
+}
+
+static inline void hp_publish_unknown_tag_pages() {
+  std::vector<uint32_t> pairs;
+  pairs.reserve(hp_discovered_tag_count);
+  for (size_t i = 0; i < hp_discovered_tag_count; i++) {
+    const HpDiscoveredTag &record = hp_discovered_tags[i];
+    for (size_t j = 0; j < record.device_count; j++) {
+      const uint8_t device_id = record.devices[j];
+      if (hp_device_role_name(device_id) == nullptr)
+        pairs.push_back((static_cast<uint32_t>(device_id) << 16) | record.tag);
+    }
+  }
+  std::sort(pairs.begin(), pairs.end());
+
+  for (size_t page = 0; page < HP_UNKNOWN_TAG_PAGES; page++) {
+    std::string out;
+    const size_t begin = page * HP_TAGS_PER_PAGE;
+    const size_t finish = std::min(pairs.size(), begin + HP_TAGS_PER_PAGE);
+    char pair_buf[12];
+    for (size_t i = begin; i < finish; i++) {
+      const uint8_t device_id = static_cast<uint8_t>(pairs[i] >> 16);
+      const uint16_t tag = static_cast<uint16_t>(pairs[i]);
+      snprintf(pair_buf, sizeof(pair_buf), "%02X:%04X", device_id, tag);
+      if (!out.empty())
+        out += " ";
+      out += pair_buf;
+    }
+    if (page + 1 == HP_UNKNOWN_TAG_PAGES && pairs.size() > finish)
+      out += " ...";
+    hp_publish_unknown_tag_page(page, out);
+  }
+}
+
 static inline void hp_note_tag_observation(uint8_t device_id, uint16_t tag, const std::string &decoded) {
   HpDiscoveredTag *record = nullptr;
   for (size_t i = 0; i < hp_discovered_tag_count; i++) {
@@ -359,6 +427,8 @@ static inline void hp_note_tag_observation(uint8_t device_id, uint16_t tag, cons
     }
     hp_publish_discovered_tags_for_device(device_id);
     hp_publish_shared_tags();
+    if (hp_device_role_name(device_id) == nullptr)
+      hp_publish_unknown_tag_pages();
   }
 
   if (record->device_count > 1 && !record->shared_value_logged[device_slot]) {
@@ -1400,6 +1470,14 @@ static inline std::string hp_decode_0x41_frame(const std::vector<uint8_t> &bytes
     ESP_LOGI(HUAWEI_PROP_TAG, "  TLV %u/%u %s", static_cast<unsigned>(i + 1),
              expected_entries, current_entries[i].c_str());
   }
+  std::string export_frame = summary;
+  if (subfunction == HP_FC41_SUBFN_CURRENT_DATA) {
+    for (const std::string &entry : current_entries) {
+      export_frame += " | ";
+      export_frame += entry;
+    }
+  }
+  hp_publish_optional_text_sensor("huawei41_decoded_frame_export", export_frame);
   if (subfunction == HP_FC41_SUBFN_CURRENT_DATA || subfunction == HP_FC41_SUBFN_REPORT) {
     hp_log_hex_chunks(bytes, p, bounded_end - p, "raw-frame");
   } else {
