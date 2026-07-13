@@ -1561,7 +1561,7 @@ static inline std::string hp_decode_0x41_frame(const std::vector<uint8_t> &bytes
         export_frame += entry;
       }
     }
-    hp_publish_optional_text_sensor("huawei41_decoded_frame_export", export_frame);
+    id(huawei41_decoded_frame_export).publish_state(export_frame);
   }
   if (subfunction == HP_FC41_SUBFN_CURRENT_DATA || subfunction == HP_FC41_SUBFN_REPORT) {
     hp_log_hex_chunks(bytes, p, bounded_end - p, "raw-frame");
