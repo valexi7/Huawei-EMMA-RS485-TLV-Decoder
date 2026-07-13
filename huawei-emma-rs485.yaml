@@ -280,59 +280,7 @@ text_sensor:
     lambda: |-
       return std::nullopt;
 
-  # Hidden compatibility IDs for decoder revisions cached before 18c85cd.
-  # They prevent package/component version skew from breaking compilation and
-  # are not exposed to Home Assistant.
-  - platform: template
-    id: emma_bus_clock
-    internal: true
-    lambda: |-
-      return std::nullopt;
-
-  - platform: template
-    id: inverter_time_field3
-    internal: true
-    lambda: |-
-      return std::nullopt;
-
 sensor:
-  # Hidden compatibility IDs; see the text-sensor note above.
-  - platform: template
-    id: inverter_bus_clock_sequence
-    internal: true
-    lambda: |-
-      return std::nullopt;
-
-  - platform: template
-    id: emma_bus_clock_sequence
-    internal: true
-    lambda: |-
-      return std::nullopt;
-
-  - platform: template
-    id: emma_line_ab_voltage_tlv
-    internal: true
-    lambda: |-
-      return std::nullopt;
-
-  - platform: template
-    id: emma_line_bc_voltage_tlv
-    internal: true
-    lambda: |-
-      return std::nullopt;
-
-  - platform: template
-    id: emma_line_ca_voltage_tlv
-    internal: true
-    lambda: |-
-      return std::nullopt;
-
-  - platform: template
-    id: inverter_reactive_power_aux
-    internal: true
-    lambda: |-
-      return std::nullopt;
-
   # Power Meter — device ID 2 (0x02), typically 0x89 report frames
   - platform: template
     id: meter_grid_frequency
