@@ -1,3 +1,7 @@
+substitutions:
+  # Resolve !secret in the user's main device YAML and override this value.
+  huawei_google_sheets_url: ""
+
 http_request:
   useragent: esphome/rs485-logger
   timeout: 10s
@@ -10,7 +14,7 @@ text_sensor:
     on_value:
       then:
         - http_request.post:
-            url: !secret google_sheets_url
+            url: ${huawei_google_sheets_url}
             request_headers:
               Content-Type: application/json
             json:

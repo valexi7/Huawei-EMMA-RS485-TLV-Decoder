@@ -124,6 +124,13 @@ Add the deployed Google Apps Script URL to the ESPHome `secrets.yaml` file:
 google_sheets_url: https://script.google.com/macros/s/REPLACE_ME/exec
 ```
 
+Resolve that secret in the main device YAML and pass it to the remote package:
+
+```yaml
+substitutions:
+  huawei_google_sheets_url: !secret google_sheets_url
+```
+
 Then load the Sheets exporter alongside the base package:
 
 ```yaml
