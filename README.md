@@ -138,7 +138,7 @@ these substitutions in the local file when necessary:
 | `huawei_uart_rx_buffer_size` | `512` | ESPHome UART receive buffer |
 | `huawei_log_level` | `INFO` | Decoder log level |
 | `huawei_tlv_ref` | `main` | External-component Git ref |
-| `huawei_tlv_refresh` | `1d` | External-component refresh interval |
+| `huawei_tlv_refresh` | `0s` | External-component refresh interval; always refresh avoids package/component version skew |
 
 ## Local development
 
