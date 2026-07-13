@@ -1555,16 +1555,18 @@ static inline std::string hp_decode_0x41_frame(const std::vector<uint8_t> &bytes
   const bool is_heartbeat =
       subfunction == HP_FC41_SUBFN_CURRENT_DATA && payload_end - payload_start == 1;
   if (!is_heartbeat && device_id == 0x0C) {
-    std::string export_frame = summary;
+    std::string export_tags;
     if (subfunction == HP_FC41_SUBFN_CURRENT_DATA) {
       for (const std::string &entry : current_entries) {
-        export_frame += " | ";
-        export_frame += entry;
+        if (!export_tags.empty()) {
+          export_tags += " | ";
+        }
+        export_tags += entry;
       }
     }
-    export_frame += " | raw=";
-    export_frame += hp_hex_slice(bytes, p, bounded_end - p);
-    id(huawei41_decoded_frame_export).publish_state(export_frame);
+    id(huawei41_decoded_frame_export).publish_state(summary);
+    id(huawei41_decoded_frame_export_tags).publish_state(export_tags.empty() ? "(none)" : export_tags);
+    id(huawei41_decoded_frame_export_raw).publish_state(hp_hex_slice(bytes, p, bounded_end - p));
   }
   if (subfunction == HP_FC41_SUBFN_CURRENT_DATA || subfunction == HP_FC41_SUBFN_REPORT) {
     hp_log_hex_chunks(bytes, p, bounded_end - p, "raw-frame");

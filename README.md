@@ -118,11 +118,17 @@ Override `huawei_rx_light_id` if your light uses another ID, and
 
 ### Forwarding decoded frames
 
-The public diagnostic text sensor `Huawei FC41 Decoded Frame` contains the
-latest CRC-valid decoded FC41 data frame. Use a Home Assistant state automation
-to forward its value to Google Sheets or another logging service. One-byte
-current-data heartbeats do not update the sensor, and upload sub-functions stay
-opaque and are not published to it.
+The export is split across three diagnostic text sensors to stay below Home
+Assistant's 255-character text state limit:
+
+- `Huawei FC41 Decoded Frame` - frame summary header.
+- `Huawei FC41 Decoded Frame Tags` - decoded TLV entries for current-data frames.
+- `Huawei FC41 Decoded Frame Raw` - raw hex bytes for the exported frame.
+
+Use a Home Assistant automation to combine/forward these values to Google
+Sheets or another logging service. One-byte current-data heartbeats do not
+update these sensors, and upload sub-functions stay opaque and are not
+published to them.
 
 ## Hardware
 
