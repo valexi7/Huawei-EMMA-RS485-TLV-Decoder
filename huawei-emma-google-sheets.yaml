@@ -1,6 +1,7 @@
 substitutions:
   # Resolve !secret in the user's main device YAML and override this value.
   huawei_google_sheets_url: ""
+  huawei_google_sheets_min_interval: 1s
 
 http_request:
   useragent: esphome/rs485-logger
@@ -13,10 +14,23 @@ text_sensor:
   - id: !extend huawei41_decoded_frame_export
     on_value:
       then:
-        - http_request.post:
-            url: ${huawei_google_sheets_url}
-            request_headers:
-              Content-Type: application/json
-            json:
-              frame: !lambda |-
-                return x;
+        - script.execute:
+            id: huawei_google_sheets_post
+            frame: !lambda |-
+              return x;
+
+script:
+  - id: huawei_google_sheets_post
+    mode: single
+    parameters:
+      frame: string
+    then:
+      - http_request.post:
+          url: ${huawei_google_sheets_url}
+          request_headers:
+            Content-Type: application/json
+          json:
+            frame: !lambda |-
+              return frame;
+      # Avoid opening a new HTTPS/DNS request for every fast RS485 frame.
+      - delay: ${huawei_google_sheets_min_interval}

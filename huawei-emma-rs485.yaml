@@ -74,6 +74,30 @@ text_sensor:
       return std::nullopt;
 
   - platform: template
+    id: emma_discovered_tags_3
+    name: "EMMA Discovered FC41 Tags 3"
+    icon: mdi:tag-multiple
+    entity_category: diagnostic
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: emma_discovered_tags_4
+    name: "EMMA Discovered FC41 Tags 4"
+    icon: mdi:tag-multiple
+    entity_category: diagnostic
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: emma_discovered_tags_5
+    name: "EMMA Discovered FC41 Tags 5"
+    icon: mdi:tag-multiple
+    entity_category: diagnostic
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
     id: meter_discovered_tags_1
     name: "Power Meter Discovered FC41 Tags 1"
     icon: mdi:tag-multiple
@@ -90,6 +114,30 @@ text_sensor:
       return std::nullopt;
 
   - platform: template
+    id: meter_discovered_tags_3
+    name: "Power Meter Discovered FC41 Tags 3"
+    icon: mdi:tag-multiple
+    entity_category: diagnostic
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: meter_discovered_tags_4
+    name: "Power Meter Discovered FC41 Tags 4"
+    icon: mdi:tag-multiple
+    entity_category: diagnostic
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: meter_discovered_tags_5
+    name: "Power Meter Discovered FC41 Tags 5"
+    icon: mdi:tag-multiple
+    entity_category: diagnostic
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
     id: inverter_discovered_tags_1
     name: "Inverter Discovered FC41 Tags 1"
     icon: mdi:tag-multiple
@@ -100,6 +148,30 @@ text_sensor:
   - platform: template
     id: inverter_discovered_tags_2
     name: "Inverter Discovered FC41 Tags 2"
+    icon: mdi:tag-multiple
+    entity_category: diagnostic
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_discovered_tags_3
+    name: "Inverter Discovered FC41 Tags 3"
+    icon: mdi:tag-multiple
+    entity_category: diagnostic
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_discovered_tags_4
+    name: "Inverter Discovered FC41 Tags 4"
+    icon: mdi:tag-multiple
+    entity_category: diagnostic
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_discovered_tags_5
+    name: "Inverter Discovered FC41 Tags 5"
     icon: mdi:tag-multiple
     entity_category: diagnostic
     lambda: |-
@@ -148,6 +220,14 @@ text_sensor:
   - platform: template
     id: huawei41_unknown_device_tags_5
     name: "Unknown FC41 Device Tags 5"
+    icon: mdi:tag-question
+    entity_category: diagnostic
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: huawei41_unknown_device_tags_6
+    name: "Unknown FC41 Device Tags 6"
     icon: mdi:tag-question
     entity_category: diagnostic
     lambda: |-

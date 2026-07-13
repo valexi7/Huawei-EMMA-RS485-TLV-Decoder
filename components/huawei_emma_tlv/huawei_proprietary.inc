@@ -47,8 +47,10 @@ static constexpr float HP_GRID_FREQUENCY_SCALE = 0.01f;
 static constexpr size_t HP_DISCOVERED_DEVICE_SLOTS = 16;
 static constexpr size_t HP_DISCOVERED_TAG_SLOTS = 128;
 static constexpr size_t HP_TAG_DEVICE_SLOTS = 8;
-static constexpr size_t HP_TAGS_PER_PAGE = 28;
-static constexpr size_t HP_UNKNOWN_TAG_PAGES = 5;
+static constexpr size_t HP_KNOWN_TAG_PAGES = 5;
+static constexpr size_t HP_UNKNOWN_TAG_PAGES = 6;
+static constexpr size_t HP_TAG_PAGE_MAX_CHARS = 240;
+static constexpr size_t HP_LATEST_VALUE_MAX_CHARS = 12;
 static constexpr size_t HP_UART_PENDING_MAX = 2048;
 
 static constexpr uint8_t HP_FC41_SUBFN_UPLOAD_START = 0x05;
@@ -100,13 +102,23 @@ struct HpDiscoveredTag {
   size_t device_count{0};
 };
 
+struct HpLatestTagValue {
+  uint8_t device_id{0};
+  uint16_t tag{0};
+  std::string value;
+};
+
 static HpDiscoveredTag hp_discovered_tags[HP_DISCOVERED_TAG_SLOTS];
 static size_t hp_discovered_tag_count = 0;
+static std::vector<HpLatestTagValue> hp_latest_tag_values;
+static uint8_t hp_known_tag_values_dirty = 0;
+static bool hp_unknown_tag_values_dirty = false;
 static std::vector<uint8_t> hp_uart_pending;
 static std::string hp_last_device_ids;
 
 static inline bool hp_tlv_type_size(uint8_t type, size_t *out_size);
 static inline uint32_t hp_u32be(const std::vector<uint8_t> &bytes, size_t pos);
+static inline void hp_publish_optional_text_sensor(const char *entity_name, const std::string &value);
 
 static inline bool hp_fc41_time_raw_looks_valid(uint32_t raw) {
   return raw > 0 && raw < HP_FC41_TIME_RAW_MAX;
@@ -253,23 +265,62 @@ static inline void hp_publish_discovered_device_ids() {
 }
 
 static inline void hp_publish_tag_page(uint8_t device_id, size_t page, const std::string &value) {
-  const char *text = value.empty() ? "(none yet)" : value.c_str();
-  if (device_id == HP_DEV_EMMA) {
-    if (page == 0)
-      id(emma_discovered_tags_1).publish_state(text);
-    else
-      id(emma_discovered_tags_2).publish_state(text);
-  } else if (device_id == HP_DEV_METER) {
-    if (page == 0)
-      id(meter_discovered_tags_1).publish_state(text);
-    else
-      id(meter_discovered_tags_2).publish_state(text);
-  } else if (device_id == HP_DEV_INVERTER) {
-    if (page == 0)
-      id(inverter_discovered_tags_1).publish_state(text);
-    else
-      id(inverter_discovered_tags_2).publish_state(text);
+  const char *role = hp_device_role_name(device_id);
+  if (role == nullptr)
+    return;
+  char entity_name[48];
+  snprintf(entity_name, sizeof(entity_name), "%s Discovered FC41 Tags %u", role, static_cast<unsigned>(page + 1));
+  hp_publish_optional_text_sensor(entity_name, value.empty() ? "(none yet)" : value);
+}
+
+static inline std::string hp_compact_latest_value(const std::string &raw_hex) {
+  std::string value;
+  value.reserve(std::min(raw_hex.size(), HP_LATEST_VALUE_MAX_CHARS));
+  for (char ch : raw_hex) {
+    if (ch == ' ')
+      continue;
+    value += ch;
+    if (value.size() >= HP_LATEST_VALUE_MAX_CHARS)
+      break;
   }
+  return value.empty() ? "?" : value;
+}
+
+static inline bool hp_update_latest_tag_value(uint8_t device_id, uint16_t tag, const std::string &raw_hex) {
+  const std::string value = hp_compact_latest_value(raw_hex);
+  for (HpLatestTagValue &record : hp_latest_tag_values) {
+    if (record.device_id == device_id && record.tag == tag) {
+      if (record.value == value)
+        return false;
+      record.value = value;
+      return true;
+    }
+  }
+  if (hp_latest_tag_values.capacity() == 0)
+    hp_latest_tag_values.reserve(HP_DISCOVERED_TAG_SLOTS);
+  if (hp_latest_tag_values.size() >= HP_DISCOVERED_TAG_SLOTS * HP_TAG_DEVICE_SLOTS)
+    return false;
+  hp_latest_tag_values.push_back({device_id, tag, value});
+  return true;
+}
+
+static inline const std::string &hp_latest_tag_value(uint8_t device_id, uint16_t tag) {
+  static const std::string unknown{"?"};
+  for (const HpLatestTagValue &record : hp_latest_tag_values) {
+    if (record.device_id == device_id && record.tag == tag)
+      return record.value;
+  }
+  return unknown;
+}
+
+static inline bool hp_try_append_page(std::string &page, const std::string &entry, const char *separator) {
+  const size_t separator_size = page.empty() ? 0 : strlen(separator);
+  if (page.size() + separator_size + entry.size() > HP_TAG_PAGE_MAX_CHARS)
+    return false;
+  if (!page.empty())
+    page += separator;
+  page += entry;
+  return true;
 }
 
 static inline void hp_publish_discovered_tags_for_device(uint8_t device_id) {
@@ -285,19 +336,22 @@ static inline void hp_publish_discovered_tags_for_device(uint8_t device_id) {
   }
   std::sort(sorted, sorted + count);
 
-  for (size_t page = 0; page < 2; page++) {
-    std::string out;
-    const size_t begin = page * HP_TAGS_PER_PAGE;
-    const size_t finish = std::min(count, begin + HP_TAGS_PER_PAGE);
-    char tag_buf[8];
-    for (size_t i = begin; i < finish; i++) {
-      snprintf(tag_buf, sizeof(tag_buf), "%04X", sorted[i]);
-      if (!out.empty())
-        out += " ";
-      out += tag_buf;
+  std::vector<std::string> pages(HP_KNOWN_TAG_PAGES);
+  size_t page = 0;
+  char entry_buf[32];
+  for (size_t i = 0; i < count; i++) {
+    snprintf(entry_buf, sizeof(entry_buf), "%04X=%s", sorted[i], hp_latest_tag_value(device_id, sorted[i]).c_str());
+    if (!hp_try_append_page(pages[page], entry_buf, ", ")) {
+      if (++page >= pages.size()) {
+        if (pages.back().size() + 4 <= HP_TAG_PAGE_MAX_CHARS)
+          pages.back() += " ...";
+        break;
+      }
+      hp_try_append_page(pages[page], entry_buf, ", ");
     }
-    hp_publish_tag_page(device_id, page, out);
   }
+  for (size_t i = 0; i < pages.size(); i++)
+    hp_publish_tag_page(device_id, i, pages[i]);
 }
 
 static inline void hp_publish_shared_tags() {
@@ -338,26 +392,9 @@ static inline void hp_publish_optional_text_sensor(const char *entity_name, cons
 }
 
 static inline void hp_publish_unknown_tag_page(size_t page, const std::string &value) {
-  const char *text = value.empty() ? "(none yet)" : value.c_str();
-  switch (page) {
-    case 0:
-      hp_publish_optional_text_sensor("Unknown FC41 Device Tags 1", text);
-      break;
-    case 1:
-      hp_publish_optional_text_sensor("Unknown FC41 Device Tags 2", text);
-      break;
-    case 2:
-      hp_publish_optional_text_sensor("Unknown FC41 Device Tags 3", text);
-      break;
-    case 3:
-      hp_publish_optional_text_sensor("Unknown FC41 Device Tags 4", text);
-      break;
-    case 4:
-      hp_publish_optional_text_sensor("Unknown FC41 Device Tags 5", text);
-      break;
-    default:
-      break;
-  }
+  char entity_name[48];
+  snprintf(entity_name, sizeof(entity_name), "Unknown FC41 Device Tags %u", static_cast<unsigned>(page + 1));
+  hp_publish_optional_text_sensor(entity_name, value.empty() ? "(none yet)" : value);
 }
 
 static inline void hp_publish_unknown_tag_pages() {
@@ -373,26 +410,67 @@ static inline void hp_publish_unknown_tag_pages() {
   }
   std::sort(pairs.begin(), pairs.end());
 
-  for (size_t page = 0; page < HP_UNKNOWN_TAG_PAGES; page++) {
-    std::string out;
-    const size_t begin = page * HP_TAGS_PER_PAGE;
-    const size_t finish = std::min(pairs.size(), begin + HP_TAGS_PER_PAGE);
-    char pair_buf[12];
-    for (size_t i = begin; i < finish; i++) {
-      const uint8_t device_id = static_cast<uint8_t>(pairs[i] >> 16);
-      const uint16_t tag = static_cast<uint16_t>(pairs[i]);
-      snprintf(pair_buf, sizeof(pair_buf), "%02X:%04X", device_id, tag);
-      if (!out.empty())
-        out += " ";
-      out += pair_buf;
+  std::vector<std::string> pages(HP_UNKNOWN_TAG_PAGES);
+  size_t page = 0;
+  int current_device = -1;
+  char tag_buf[32];
+  for (uint32_t pair : pairs) {
+    const uint8_t device_id = static_cast<uint8_t>(pair >> 16);
+    const uint16_t tag = static_cast<uint16_t>(pair);
+    snprintf(tag_buf, sizeof(tag_buf), "%04X=%s", tag, hp_latest_tag_value(device_id, tag).c_str());
+    const bool new_device = current_device != device_id;
+    std::string entry;
+    if (new_device) {
+      char prefix[12];
+      snprintf(prefix, sizeof(prefix), "0x%02X: ", device_id);
+      entry = prefix;
     }
-    if (page + 1 == HP_UNKNOWN_TAG_PAGES && pairs.size() > finish)
-      out += " ...";
-    hp_publish_unknown_tag_page(page, out);
+    entry += tag_buf;
+    const char *separator = new_device ? " | " : ", ";
+    if (!hp_try_append_page(pages[page], entry, separator)) {
+      if (++page >= pages.size()) {
+        if (pages.back().size() + 4 <= HP_TAG_PAGE_MAX_CHARS)
+          pages.back() += " ...";
+        break;
+      }
+      char prefix[12];
+      snprintf(prefix, sizeof(prefix), "0x%02X: ", device_id);
+      entry = prefix;
+      entry += tag_buf;
+      hp_try_append_page(pages[page], entry, " | ");
+    }
+    current_device = device_id;
   }
+  for (size_t i = 0; i < pages.size(); i++)
+    hp_publish_unknown_tag_page(i, pages[i]);
 }
 
-static inline void hp_note_tag_observation(uint8_t device_id, uint16_t tag, const std::string &decoded) {
+static inline void hp_mark_tag_values_dirty(uint8_t device_id) {
+  if (device_id == HP_DEV_EMMA)
+    hp_known_tag_values_dirty |= 0x01;
+  else if (device_id == HP_DEV_METER)
+    hp_known_tag_values_dirty |= 0x02;
+  else if (device_id == HP_DEV_INVERTER)
+    hp_known_tag_values_dirty |= 0x04;
+  else
+    hp_unknown_tag_values_dirty = true;
+}
+
+static inline void hp_publish_dirty_tag_values() {
+  if (hp_known_tag_values_dirty & 0x01)
+    hp_publish_discovered_tags_for_device(HP_DEV_EMMA);
+  if (hp_known_tag_values_dirty & 0x02)
+    hp_publish_discovered_tags_for_device(HP_DEV_METER);
+  if (hp_known_tag_values_dirty & 0x04)
+    hp_publish_discovered_tags_for_device(HP_DEV_INVERTER);
+  if (hp_unknown_tag_values_dirty)
+    hp_publish_unknown_tag_pages();
+  hp_known_tag_values_dirty = 0;
+  hp_unknown_tag_values_dirty = false;
+}
+
+static inline void hp_note_tag_observation(uint8_t device_id, uint16_t tag, const std::string &decoded,
+                                           const std::string &raw_value) {
   HpDiscoveredTag *record = nullptr;
   for (size_t i = 0; i < hp_discovered_tag_count; i++) {
     if (hp_discovered_tags[i].tag == tag) {
@@ -425,11 +503,11 @@ static inline void hp_note_tag_observation(uint8_t device_id, uint16_t tag, cons
       for (size_t i = 0; i < record->device_count; i++)
         record->shared_value_logged[i] = false;
     }
-    hp_publish_discovered_tags_for_device(device_id);
     hp_publish_shared_tags();
-    if (hp_device_role_name(device_id) == nullptr)
-      hp_publish_unknown_tag_pages();
   }
+
+  if (hp_update_latest_tag_value(device_id, tag, raw_value))
+    hp_mark_tag_values_dirty(device_id);
 
   if (record->device_count > 1 && !record->shared_value_logged[device_slot]) {
     ESP_LOGI(HUAWEI_PROP_TAG, "Shared FC41 tag sample dev=%u (0x%02X) tag=0x%04X :: %s", device_id, device_id, tag,
@@ -1226,7 +1304,7 @@ static inline void hp_walk_current_data_tlvs(const std::vector<uint8_t> &bytes, 
 
     const std::string entry = hp_format_current_data_tlv(device_id, bytes, pos, tag, word_count, val_size);
     entries.push_back(entry);
-    hp_note_tag_observation(device_id, tag, entry);
+    hp_note_tag_observation(device_id, tag, entry, hp_hex_slice(bytes, pos + 3, std::min(val_size, size_t{6})));
 
     hp_try_publish_bus_clock_value(device_id, tag, bytes, pos, val_size);
     hp_try_publish_serial_number_value(device_id, tag, bytes, pos, val_size);
@@ -1260,7 +1338,9 @@ static inline std::string hp_walk_tlv_payload(const std::vector<uint8_t> &bytes,
     }
 
     const uint16_t tag = hp_u16be(bytes[pos], bytes[pos + 1]);
-    hp_note_tag_observation(device_id, tag, entry);
+    const size_t value_header = is_typed ? 3 : 4;
+    hp_note_tag_observation(device_id, tag, entry,
+                            hp_hex_slice(bytes, pos + value_header, std::min(advance - value_header, size_t{6})));
     if (is_typed && bytes[pos + 2] == 0x0A) {
       hp_try_publish_bus_clock(device_id, tag, 0x0A, bytes, pos);
     }
@@ -1470,6 +1550,7 @@ static inline std::string hp_decode_0x41_frame(const std::vector<uint8_t> &bytes
     ESP_LOGI(HUAWEI_PROP_TAG, "  TLV %u/%u %s", static_cast<unsigned>(i + 1),
              expected_entries, current_entries[i].c_str());
   }
+  hp_publish_dirty_tag_values();
   std::string export_frame = summary;
   if (subfunction == HP_FC41_SUBFN_CURRENT_DATA) {
     for (const std::string &entry : current_entries) {

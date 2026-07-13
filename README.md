@@ -155,8 +155,27 @@ the JSON `frame` value to `rs485Frame`. Upload sub-functions remain opaque and
 are not exported. The optional package disables TLS certificate verification
 to save flash; traffic is encrypted, but the remote server identity is not
 verified. ESPHome HTTP actions are synchronous, so a slow Sheets endpoint can
-delay UART processing; use this exporter for diagnostics and increase the UART
-RX buffer if requests regularly take longer than the interval between frames.
+delay UART processing. The exporter accepts at most one request per second by
+default; override `huawei_google_sheets_min_interval` to change this diagnostic
+sampling interval, and increase the UART RX buffer if requests regularly take
+longer than the interval between frames.
+
+If ESP-IDF reports `getaddrinfo() returns 202`, the ESP32 cannot resolve the
+Google hostname through its configured DNS server. The colons around
+`:script.google.com:` in ESP-IDF's message are log delimiters, not part of the
+hostname. Check that the ESP has a valid gateway/DNS address and that its VLAN
+allows DNS. With a static address, DNS can be set explicitly in the main YAML:
+
+```yaml
+wifi:
+  # ssid/password omitted
+  manual_ip:
+    static_ip: 192.168.1.50
+    gateway: 192.168.1.1
+    subnet: 255.255.255.0
+    dns1: 1.1.1.1
+    dns2: 8.8.8.8
+```
 
 ## Hardware
 
@@ -207,12 +226,12 @@ the repository's local `components` directory while testing.
   original work; they are not loaded by the TLV package.
 
 The package exposes discovered-tag text sensors for known device IDs 0, 2, and
-12 (split across two pages), plus a shared-tag sensor. Tags belonging to other
-device IDs are shown on five additional pages as `device:tag` hexadecimal
-pairs, for example `07:7D5F`. A tag seen under multiple device IDs is logged
-once per device with its decoded sample, making possible cross-device meanings
-visible without flooding the log. Unknown tags do not create guessed numeric
-entities.
+12, plus a shared-tag sensor. Each entry includes its compact latest raw value,
+such as `7D5F=00000382`. Tags belonging to other device IDs are grouped
+on additional pages, for example `0x80: 7530=value, 7540=value`. A tag seen
+under multiple device IDs is logged once per device with its decoded sample,
+making possible cross-device meanings visible without flooding the log.
+Unknown tags do not create guessed numeric entities.
 
 In the July 2026 capture used for this revision, device 2 had 16 tags and device
 12 had 52 tags, with no tag ID present in both sets. Known decoding is therefore
