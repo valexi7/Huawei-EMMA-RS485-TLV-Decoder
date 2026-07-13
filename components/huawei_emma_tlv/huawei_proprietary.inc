@@ -553,22 +553,64 @@ static inline void hp_log_hex_chunks(const std::vector<uint8_t> &bytes, size_t s
   }
 }
 
+static inline std::string hp_json_escape(const std::string &value) {
+  std::string out;
+  out.reserve(value.size() + 8);
+  char buf[7];
+  for (char c : value) {
+    const uint8_t ch = static_cast<uint8_t>(c);
+    switch (c) {
+      case '\\':
+        out += "\\\\";
+        break;
+      case '"':
+        out += "\\\"";
+        break;
+      case '\b':
+        out += "\\b";
+        break;
+      case '\f':
+        out += "\\f";
+        break;
+      case '\n':
+        out += "\\n";
+        break;
+      case '\r':
+        out += "\\r";
+        break;
+      case '\t':
+        out += "\\t";
+        break;
+      default:
+        if (ch < 0x20) {
+          snprintf(buf, sizeof(buf), "\\u%04X", ch);
+          out += buf;
+        } else {
+          out += c;
+        }
+        break;
+    }
+  }
+  return out;
+}
+
 static inline void hp_publish_fc41_frame_to_mqtt(const std::string &summary,
                                                   const std::string &export_tags,
                                                   const std::vector<uint8_t> &bytes, size_t p,
                                                   size_t bounded_end) {
 #ifdef USE_MQTT
-  ESP_LOGI(HUAWEI_PROP_TAG, "MQTT enabled");
-  
   if (global_mqtt_client != nullptr) {
-    std::string json_payload = "{\"state\":\"" + summary +
-                               "\",\"tags\":\"" +
-                               (export_tags.empty() ? "(none)" : export_tags) +
-                               "\",\"raw\":\"" +
-                               hp_hex_slice(bytes, p, bounded_end - p) + "\"}";
-    global_mqtt_client->publish("huawei-emma-rs485/fc41_frame", json_payload);
+    const std::string json_payload = "{\"state\":\"" + hp_json_escape(summary) +
+                                     "\",\"tags\":\"" +
+                                     hp_json_escape(export_tags.empty() ? "(none)" : export_tags) +
+                                     "\",\"raw\":\"" +
+                                     hp_json_escape(hp_hex_slice(bytes, p, bounded_end - p)) + "\"}";
+    const bool published = global_mqtt_client->publish("huawei-emma-rs485/fc41_frame", json_payload);
+    if (!published) {
+      ESP_LOGW(HUAWEI_PROP_TAG, "MQTT publish rejected for huawei-emma-rs485/fc41_frame");
+    }
   } else {
-    ESP_LOGW(HUAWEI_PROP_TAG, "MQTT client NULL");
+    ESP_LOGW(HUAWEI_PROP_TAG, "MQTT client NULL; add an mqtt: section to the device config to publish FC41 frames");
   }
 #else
   (void) summary;
@@ -1581,7 +1623,7 @@ static inline std::string hp_decode_0x41_frame(const std::vector<uint8_t> &bytes
   const uint8_t device_id = bytes[p];
   const bool is_heartbeat =
       subfunction == HP_FC41_SUBFN_CURRENT_DATA && payload_end - payload_start == 1;
-  if (!is_heartbeat && device_id == 0x0C) {
+  if (!is_heartbeat) {
     std::string export_tags;
     if (subfunction == HP_FC41_SUBFN_CURRENT_DATA) {
       for (const std::string &entry : current_entries) {

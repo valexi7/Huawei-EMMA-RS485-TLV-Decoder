@@ -127,7 +127,8 @@ sensor state and also publishes a JSON payload to MQTT topic
 - `raw`: raw hex bytes for the exported frame
 
 One-byte current-data heartbeats and opaque upload sub-functions do not trigger
-this export.
+this export. All decoded non-heartbeat current-data/report/direct-tag FC41
+frames are exported, regardless of device ID.
 
 ### MQTT broker configuration
 
