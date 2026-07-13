@@ -391,36 +391,25 @@ static inline void hp_publish_optional_text_sensor(const char *entity_name, cons
   }
 }
 
-static inline void hp_publish_fc41_frame_to_homeassistant(const std::string &state_val,
-                                                           const std::string &tags_val,
-                                                           const std::string &raw_val) {
-#ifdef USE_API_HOMEASSISTANT_SERVICES
-  esphome::api::HomeassistantActionRequest call;
-  call.service = esphome::StringRef("homeassistant.set_state");
-  call.is_event = false;
-  call.data.init(4);
-
-  auto &entity_id = call.data.emplace_back();
-  entity_id.key = esphome::StringRef("entity_id");
-  entity_id.value = esphome::StringRef("sensor.boiler_room_huawei_emma_rs485_huawei_fc41_decoded_frame");
-
-  auto &state = call.data.emplace_back();
-  state.key = esphome::StringRef("state");
-  state.value = esphome::StringRef(state_val);
-
-  auto &tags = call.data.emplace_back();
-  tags.key = esphome::StringRef("tags");
-  tags.value = esphome::StringRef(tags_val);
-
-  auto &raw = call.data.emplace_back();
-  raw.key = esphome::StringRef("raw");
-  raw.value = esphome::StringRef(raw_val);
-
-  id(homeassistant_service).send_homeassistant_action(call);
+static inline void hp_publish_fc41_frame_to_mqtt(const std::string &summary,
+                                                  const std::string &export_tags,
+                                                  const std::vector<uint8_t> &bytes, size_t p,
+                                                  size_t bounded_end) {
+#ifdef USE_MQTT
+  if (global_mqtt_client != nullptr) {
+    std::string json_payload = "{\"state\":\"" + summary +
+                               "\",\"tags\":\"" +
+                               (export_tags.empty() ? "(none)" : export_tags) +
+                               "\",\"raw\":\"" +
+                               hp_hex_slice(bytes, p, bounded_end - p) + "\"}";
+    global_mqtt_client->publish("huawei-emma-rs485/fc41_frame", json_payload);
+  }
 #else
-  (void) state_val;
-  (void) tags_val;
-  (void) raw_val;
+  (void) summary;
+  (void) export_tags;
+  (void) bytes;
+  (void) p;
+  (void) bounded_end;
 #endif
 }
 
@@ -1597,9 +1586,8 @@ static inline std::string hp_decode_0x41_frame(const std::vector<uint8_t> &bytes
         export_tags += entry;
       }
     }
-    const std::string raw_bytes = hp_hex_slice(bytes, p, bounded_end - p);
     id(huawei41_decoded_frame_export).publish_state(summary);
-    hp_publish_fc41_frame_to_homeassistant(summary, export_tags.empty() ? "(none)" : export_tags, raw_bytes);
+    hp_publish_fc41_frame_to_mqtt(summary, export_tags, bytes, p, bounded_end);
   }
   if (subfunction == HP_FC41_SUBFN_CURRENT_DATA || subfunction == HP_FC41_SUBFN_REPORT) {
     hp_log_hex_chunks(bytes, p, bounded_end - p, "raw-frame");
