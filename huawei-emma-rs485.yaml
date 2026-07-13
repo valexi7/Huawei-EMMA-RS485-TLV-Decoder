@@ -244,6 +244,22 @@ text_sensor:
       return std::nullopt;
 
   - platform: template
+    id: huawei41_decoded_frame_export_tags
+    name: "Huawei FC41 Decoded Frame Tags"
+    icon: mdi:tag-multiple
+    entity_category: diagnostic
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: huawei41_decoded_frame_export_raw
+    name: "Huawei FC41 Decoded Frame Raw"
+    icon: mdi:barcode
+    entity_category: diagnostic
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
     id: inverter_bus_clock
     name: "Inverter Bus Clock"
     icon: mdi:clock-outline
