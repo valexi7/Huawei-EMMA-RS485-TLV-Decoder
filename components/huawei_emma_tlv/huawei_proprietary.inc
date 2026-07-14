@@ -553,6 +553,47 @@ static inline void hp_log_hex_chunks(const std::vector<uint8_t> &bytes, size_t s
   }
 }
 
+static inline std::string hp_json_escape(const std::string &value) {
+  std::string out;
+  out.reserve(value.size() + 8);
+  char buf[7];
+  for (char c : value) {
+    const uint8_t ch = static_cast<uint8_t>(c);
+    switch (c) {
+      case '\\':
+        out += "\\\\";
+        break;
+      case '"':
+        out += "\\\"";
+        break;
+      case '\b':
+        out += "\\b";
+        break;
+      case '\f':
+        out += "\\f";
+        break;
+      case '\n':
+        out += "\\n";
+        break;
+      case '\r':
+        out += "\\r";
+        break;
+      case '\t':
+        out += "\\t";
+        break;
+      default:
+        if (ch < 0x20) {
+          snprintf(buf, sizeof(buf), "\\u%04X", ch);
+          out += buf;
+        } else {
+          out += c;
+        }
+        break;
+    }
+  }
+  return out;
+}
+
 static inline void hp_publish_fc41_frame_to_mqtt(const std::string &summary,
                                                   const std::string &export_tags,
                                                   const std::vector<uint8_t> &bytes, size_t p,
