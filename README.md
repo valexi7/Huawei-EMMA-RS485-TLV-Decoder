@@ -204,12 +204,24 @@ the repository's local `components` directory while testing.
   original work; they are not loaded by the TLV package.
 
 The package exposes discovered-tag text sensors for known device IDs 0, 2, and
-12, plus a shared-tag sensor. Each entry includes its compact latest raw value,
-such as `7D5F=00000382`. Tags belonging to other device IDs are grouped
+12, plus a shared-tag sensor. The inverter catalog has ten pages; the EMMA and
+power-meter catalogs have five pages each. Each entry includes its compact
+latest raw value, such as `7D5F=00000382`. Tags belonging to other device IDs are grouped
 on additional pages, for example `0x80: 7530=value, 7540=value`. A tag seen
 under multiple device IDs is logged once per device with its decoded sample,
 making possible cross-device meanings visible without flooding the log.
-Unknown tags do not create guessed numeric entities.
+Tags with established semantics are omitted from the per-device discovered
+catalogs so those pages stay focused on reverse-engineering unknown fields.
+Their decoded values remain available through entities and frame logs. `Unknown
+FC41 Device Tags` contains traffic from unrecognized device IDs. Unknown tags do
+not create guessed numeric entities.
+
+Battery model tag `0x9640` exposes its leading null-terminated, zero-padded
+string as `Battery Pack Model`; its remaining bytes are crypto metadata rather
+than part of the model name. Tag `0x985B` is split into three 30-byte fields exposed as
+`Battery Pack 1 Model`, `Battery Pack 2 Model`, and `Battery Pack 3 Model`.
+Current-data TLV counts use the low seven bits of the count byte; the high bit
+is retained as a frame flag in decoder summaries.
 
 In the July 2026 capture used for this revision, device 2 had 16 tags and device
 12 had 52 tags, with no tag ID present in both sets. Known decoding is therefore

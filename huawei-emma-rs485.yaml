@@ -269,6 +269,78 @@ text_sensor:
       return std::nullopt;
 
   - platform: template
+    id: inverter_discovered_tags_6
+    name: "Inverter Discovered FC41 Tags 6"
+    icon: mdi:tag-multiple
+    entity_category: diagnostic
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_discovered_tags_7
+    name: "Inverter Discovered FC41 Tags 7"
+    icon: mdi:tag-multiple
+    entity_category: diagnostic
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_discovered_tags_8
+    name: "Inverter Discovered FC41 Tags 8"
+    icon: mdi:tag-multiple
+    entity_category: diagnostic
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_discovered_tags_9
+    name: "Inverter Discovered FC41 Tags 9"
+    icon: mdi:tag-multiple
+    entity_category: diagnostic
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_discovered_tags_10
+    name: "Inverter Discovered FC41 Tags 10"
+    icon: mdi:tag-multiple
+    entity_category: diagnostic
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: battery_pack_model
+    name: "Battery Pack Model"
+    icon: mdi:battery
+    entity_category: diagnostic
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: battery_pack_1_model
+    name: "Battery Pack 1 Model"
+    icon: mdi:battery
+    entity_category: diagnostic
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: battery_pack_2_model
+    name: "Battery Pack 2 Model"
+    icon: mdi:battery
+    entity_category: diagnostic
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: battery_pack_3_model
+    name: "Battery Pack 3 Model"
+    icon: mdi:battery
+    entity_category: diagnostic
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
     id: inverter_startup_time
     name: "Inverter Startup Time"
     icon: mdi:clock-start

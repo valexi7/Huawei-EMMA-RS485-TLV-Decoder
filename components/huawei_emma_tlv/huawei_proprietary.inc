@@ -40,6 +40,10 @@ static constexpr uint16_t HP_TAG_INVERTER_SOLAR_PV = 0x7E44;         // 0x35 wor
 static constexpr uint16_t HP_TAG_SECONDARY_ACTIVE_POWER = 0x9385;  // inverter secondary active-power candidate
 static constexpr uint16_t HP_TAG_BUS_CLOCK = 0x7D6E;             // variable words: u32 unix sec, optional u32 seq
 static constexpr uint16_t HP_TAG_SERIAL_NUMBER = 0x9187;         // word payload containing ASCII serial number
+static constexpr uint16_t HP_TAG_BATTERY_PACK_MODEL = 0x9640;    // model field followed by crypto metadata
+static constexpr uint16_t HP_TAG_BATTERY_PACK_MODELS = 0x985B;  // three fixed-width battery-pack model fields
+static constexpr size_t HP_BATTERY_MODULE_MODEL_FIELD_BYTES = 30;
+static constexpr size_t HP_BATTERY_PACK_COUNT = 3;
 static constexpr float HP_ENERGY_YIELD_SCALE = 0.01f;
 static constexpr float HP_LINE_VOLTAGE_SCALE = 0.1f;
 static constexpr float HP_PHASE_VOLTAGE_SCALE = 0.1f;
@@ -49,6 +53,7 @@ static constexpr size_t HP_DISCOVERED_DEVICE_SLOTS = 16;
 static constexpr size_t HP_DISCOVERED_TAG_SLOTS = 128;
 static constexpr size_t HP_TAG_DEVICE_SLOTS = 8;
 static constexpr size_t HP_KNOWN_TAG_PAGES = 5;
+static constexpr size_t HP_INVERTER_TAG_PAGES = 10;
 static constexpr size_t HP_UNKNOWN_TAG_PAGES = 6;
 static constexpr size_t HP_TAG_PAGE_MAX_CHARS = 240;
 static constexpr size_t HP_LATEST_VALUE_MAX_CHARS = 12;
@@ -120,6 +125,7 @@ static std::string hp_last_device_ids;
 static inline bool hp_tlv_type_size(uint8_t type, size_t *out_size);
 static inline uint32_t hp_u32be(const std::vector<uint8_t> &bytes, size_t pos);
 static inline void hp_publish_optional_text_sensor(const char *entity_name, const std::string &value);
+static inline bool hp_tag_has_established_semantics(uint8_t device_id, uint16_t tag);
 
 static inline bool hp_fc41_time_raw_looks_valid(uint32_t raw) {
   return raw > 0 && raw < HP_FC41_TIME_RAW_MAX;
@@ -330,14 +336,17 @@ static inline void hp_publish_discovered_tags_for_device(uint8_t device_id) {
   for (size_t i = 0; i < hp_discovered_tag_count; i++) {
     for (size_t j = 0; j < hp_discovered_tags[i].device_count; j++) {
       if (hp_discovered_tags[i].devices[j] == device_id) {
-        sorted[count++] = hp_discovered_tags[i].tag;
+        const uint16_t tag = hp_discovered_tags[i].tag;
+        if (!hp_tag_has_established_semantics(device_id, tag))
+          sorted[count++] = tag;
         break;
       }
     }
   }
   std::sort(sorted, sorted + count);
 
-  std::vector<std::string> pages(HP_KNOWN_TAG_PAGES);
+  const size_t page_count = device_id == HP_DEV_INVERTER ? HP_INVERTER_TAG_PAGES : HP_KNOWN_TAG_PAGES;
+  std::vector<std::string> pages(page_count);
   size_t page = 0;
   char entry_buf[32];
   for (size_t i = 0; i < count; i++) {
@@ -854,6 +863,79 @@ static inline void hp_try_publish_serial_number_value(uint8_t device_id, uint16_
   }
 }
 
+// Keep the per-device discovery pages focused on tags whose semantics are not
+// established yet. Candidate/partially understood tags intentionally remain.
+static inline bool hp_tag_has_established_semantics(uint8_t device_id, uint16_t tag) {
+  if (device_id == HP_DEV_METER)
+    return tag == HP_TAG_GRID_FREQ_PHASE_V || tag == HP_TAG_LINE_VOLTAGE;
+
+  if (device_id == HP_DEV_EMMA)
+    return tag == HP_TAG_SERIAL_NUMBER;
+
+  if (device_id != HP_DEV_INVERTER)
+    return false;
+
+  switch (tag) {
+    case HP_TAG_LINE_VOLTAGE:
+    case HP_TAG_PHASE_VOLTAGE_TLV:
+    case HP_TAG_PHASE_VOLTAGE_U32:
+    case HP_TAG_PHASE_CURRENT:
+    case HP_TAG_PHASE_ACTIVE_POWER:
+    case HP_TAG_LINE_VOLTAGE_U32:
+    case HP_TAG_PHASE_ACTIVE_POWER_I16:
+    case HP_TAG_PHASE_ACTIVE_POWER_ALT:
+    case HP_TAG_ACTIVE_POWER:
+    case HP_TAG_REACTIVE_POWER:
+    case HP_TAG_TOTAL_YIELD:
+    case HP_TAG_DAILY_ENERGY:
+    case HP_TAG_INVERTER_TIMES:
+    case HP_TAG_BATTERY_CHARGED_TODAY:
+    case HP_TAG_BATTERY_DISCHARGED_TODAY:
+    case HP_TAG_BATTERY_TOTAL_CHARGE:
+    case HP_TAG_BATTERY_TOTAL_DISCHARGE:
+    case HP_TAG_BATTERY_POWER:
+    case HP_TAG_INVERTER_SOLAR_PV:
+    case HP_TAG_BUS_CLOCK:
+    case HP_TAG_SERIAL_NUMBER:
+    case HP_TAG_BATTERY_PACK_MODEL:
+    case HP_TAG_BATTERY_PACK_MODELS:
+      return true;
+    default:
+      return false;
+  }
+}
+
+static inline void hp_try_publish_battery_model_values(uint8_t device_id, uint16_t tag,
+                                                       const std::vector<uint8_t> &bytes, size_t pos,
+                                                       size_t val_size) {
+  if (device_id != HP_DEV_INVERTER || pos + 3 + val_size > bytes.size())
+    return;
+
+  const size_t value_start = pos + 3;
+  if (tag == HP_TAG_BATTERY_PACK_MODEL && val_size > 0) {
+    const std::string model = hp_tlv_value_to_ascii(bytes, value_start, val_size);
+    if (!model.empty())
+      hp_publish_optional_text_sensor("Battery Pack Model", model);
+    return;
+  }
+
+  if (tag != HP_TAG_BATTERY_PACK_MODELS ||
+      val_size < HP_BATTERY_PACK_COUNT * HP_BATTERY_MODULE_MODEL_FIELD_BYTES)
+    return;
+
+  const std::string model_1 = hp_tlv_value_to_ascii(bytes, value_start, HP_BATTERY_MODULE_MODEL_FIELD_BYTES);
+  const std::string model_2 = hp_tlv_value_to_ascii(
+      bytes, value_start + HP_BATTERY_MODULE_MODEL_FIELD_BYTES, HP_BATTERY_MODULE_MODEL_FIELD_BYTES);
+  const std::string model_3 = hp_tlv_value_to_ascii(
+      bytes, value_start + (2 * HP_BATTERY_MODULE_MODEL_FIELD_BYTES), HP_BATTERY_MODULE_MODEL_FIELD_BYTES);
+  if (!model_1.empty())
+    hp_publish_optional_text_sensor("Battery Pack 1 Model", model_1);
+  if (!model_2.empty())
+    hp_publish_optional_text_sensor("Battery Pack 2 Model", model_2);
+  if (!model_3.empty())
+    hp_publish_optional_text_sensor("Battery Pack 3 Model", model_3);
+}
+
 static inline void hp_try_publish_bus_clock(uint8_t device_id, uint16_t tag, uint8_t type,
                                             const std::vector<uint8_t> &bytes, size_t pos) {
   size_t val_size = 0;
@@ -1043,6 +1125,42 @@ static inline std::string hp_format_current_data_tlv(uint8_t device_id, const st
                                                      size_t pos, uint16_t tag, uint8_t word_count,
                                                      size_t val_size) {
   char line[320];
+  const size_t value_start = pos + 3;
+  if (tag == HP_TAG_BATTERY_PACK_MODEL && val_size > 0) {
+    const std::string model = hp_tlv_value_to_ascii(bytes, value_start, val_size);
+    const size_t value_end = value_start + val_size;
+    size_t metadata_start = value_start + model.size();
+    while (metadata_start < value_end && bytes[metadata_start] == 0)
+      metadata_start++;
+    const size_t metadata_size = value_end - metadata_start;
+    const std::string algorithm = hp_tlv_value_to_ascii(bytes, metadata_start, metadata_size);
+    std::string key_type;
+    if (algorithm.size() + 1 < metadata_size) {
+      key_type = hp_tlv_value_to_ascii(bytes, metadata_start + algorithm.size() + 1,
+                                       metadata_size - algorithm.size() - 1);
+    }
+    if (!algorithm.empty() && !key_type.empty()) {
+      snprintf(line, sizeof(line), "tag=0x%04X battery_pack_model=%s crypto=%s/%s", tag, model.c_str(),
+               algorithm.c_str(), key_type.c_str());
+    } else {
+      snprintf(line, sizeof(line), "tag=0x%04X battery_pack_model=%s", tag, model.c_str());
+    }
+    return line;
+  }
+
+  if (tag == HP_TAG_BATTERY_PACK_MODELS &&
+      val_size >= HP_BATTERY_PACK_COUNT * HP_BATTERY_MODULE_MODEL_FIELD_BYTES) {
+    const std::string model_1 = hp_tlv_value_to_ascii(bytes, value_start, HP_BATTERY_MODULE_MODEL_FIELD_BYTES);
+    const std::string model_2 = hp_tlv_value_to_ascii(
+        bytes, value_start + HP_BATTERY_MODULE_MODEL_FIELD_BYTES, HP_BATTERY_MODULE_MODEL_FIELD_BYTES);
+    const std::string model_3 = hp_tlv_value_to_ascii(
+        bytes, value_start + (2 * HP_BATTERY_MODULE_MODEL_FIELD_BYTES), HP_BATTERY_MODULE_MODEL_FIELD_BYTES);
+    snprintf(line, sizeof(line),
+             "tag=0x%04X battery_pack_1_model=%s battery_pack_2_model=%s battery_pack_3_model=%s", tag,
+             model_1.c_str(), model_2.c_str(), model_3.c_str());
+    return line;
+  }
+
   if (word_count == 1) {
     const uint16_t word = hp_u16be(bytes[pos + 3], bytes[pos + 4]);
     snprintf(line, sizeof(line), "tag=0x%04X words=1 value=0x%04X(%u)", tag, word, word);
@@ -1309,6 +1427,7 @@ static inline void hp_walk_current_data_tlvs(const std::vector<uint8_t> &bytes, 
 
     hp_try_publish_bus_clock_value(device_id, tag, bytes, pos, val_size);
     hp_try_publish_serial_number_value(device_id, tag, bytes, pos, val_size);
+    hp_try_publish_battery_model_values(device_id, tag, bytes, pos, val_size);
     hp_try_publish_phase_from_typed_tlv(device_id, tag, word_count, bytes, pos);
 
     pos += 3 + val_size;
@@ -1455,14 +1574,22 @@ static inline std::string hp_decode_0x35_tlv(const std::vector<uint8_t> &bytes, 
   }
 
   const uint8_t sequence = bytes[payload_start];
-  const uint8_t expected_count = bytes[payload_start + 1];
+  // The high bit is a control flag; the low seven bits carry the number of
+  // TLVs. For example, 0x91 describes 17 TLVs and has flag 0x80 set.
+  const uint8_t raw_count = bytes[payload_start + 1];
+  const uint8_t expected_count = raw_count & 0x7F;
+  const uint8_t count_flags = raw_count & 0x80;
   uint8_t parsed_count = 0;
   size_t consumed_end = payload_start + 2;
   hp_walk_current_data_tlvs(bytes, payload_start + 2, payload_end, expected_count, device_id, parsed_count,
                             consumed_end, entries);
 
   char meta[64];
-  snprintf(meta, sizeof(meta), " seq=0x%02X tlvs=%u", sequence, expected_count);
+  if (count_flags != 0) {
+    snprintf(meta, sizeof(meta), " seq=0x%02X tlvs=%u flags=0x%02X", sequence, expected_count, count_flags);
+  } else {
+    snprintf(meta, sizeof(meta), " seq=0x%02X tlvs=%u", sequence, expected_count);
+  }
   summary += meta;
 
   if (parsed_count != expected_count || consumed_end != payload_end) {
@@ -1539,7 +1666,7 @@ static inline std::string hp_decode_0x41_frame(const std::vector<uint8_t> &bytes
   ESP_LOGI(HUAWEI_PROP_TAG, "FC41 %s", summary.c_str());
   const unsigned expected_entries =
       (subfunction == HP_FC41_SUBFN_CURRENT_DATA && payload_end >= payload_start + 2)
-          ? static_cast<unsigned>(bytes[payload_start + 1])
+          ? static_cast<unsigned>(bytes[payload_start + 1] & 0x7F)
           : static_cast<unsigned>(current_entries.size());
   for (size_t i = 0; i < current_entries.size(); i++) {
     ESP_LOGI(HUAWEI_PROP_TAG, "  TLV %u/%u %s", static_cast<unsigned>(i + 1),
