@@ -118,58 +118,43 @@ Override `huawei_rx_light_id` if your light uses another ID, and
 
 ### Forwarding decoded frames
 
-The package currently keeps `Huawei FC41 Decoded Frame` as the diagnostic text
-sensor state and also publishes a JSON payload to MQTT topic
-`huawei-emma-rs485/fc41_frame` when the MQTT client is configured and connected.
-
-- `state`: frame summary header
-- `tags`: decoded TLV entries for current-data frames
-- `raw`: raw hex bytes for the exported frame
-
-One-byte current-data heartbeats and opaque upload sub-functions do not trigger
-this export. All decoded non-heartbeat current-data/report/direct-tag FC41
-frames are exported, regardless of device ID.
-
-### MQTT broker configuration
-
-Add an MQTT section in your local ESPHome device config (not in the package):
-
-```yaml
-mqtt:
-  broker: 192.168.1.10
-  username: !secret mqtt_user
-  password: !secret mqtt_password
-```
-
-The ESPHome dashboard/CLI can also print `Connected to MQTT broker` while it is
-using MQTT only to discover the device IP before opening API logs. That message
-does not prove the ESP firmware was compiled with the `mqtt:` component. If the
-device YAML does not contain `mqtt:`, FC41 frames can still update Home Assistant
-entities over the native API but there is no device-side MQTT client to publish
-`huawei-emma-rs485/fc41_frame`.
-
-After flashing firmware that includes this package version and a local `mqtt:`
-section, INFO logs for decoded non-heartbeat FC41 frames should include:
+The package keeps `Huawei FC41 Decoded Frame` as a diagnostic text sensor and
+emits each decoded frame at INFO level with the dedicated logger tag
+`huawei_prop_fc41_frame`. The message has three pipe-delimited fields:
 
 ```text
-FC41 MQTT export candidate; publishing diagnostic text state and MQTT frame
-Publishing FC41 frame to MQTT topic huawei-emma-rs485/fc41_frame
-Published FC41 frame to MQTT topic huawei-emma-rs485/fc41_frame
+<summary> | <semicolon-separated decoded tags, or (none)> | <space-separated raw hex>
 ```
 
-If decoded FC41 logs and sensor updates appear but `FC41 MQTT export candidate`
-does not, the running firmware is not using the updated decoder source. Clean the
-ESPHome build files, compile, and flash again. If the candidate line appears but
-the `Publishing`/`Published` lines do not, the firmware was built without the
-local `mqtt:` section or without MQTT support.
+One-byte current-data heartbeats and opaque upload sub-functions do not emit
+this export. All decoded non-heartbeat current-data, report, and direct-tag FC41
+frames are exported regardless of device ID. MQTT publishing is not used.
 
-### Listen to FC41 topic
+To forward these records through the native ESPHome API, add the following to
+the main device YAML. `tx_buffer_size` gives complete frame records enough room
+instead of truncating them at the logger's smaller default buffer size.
 
-Use `mosquitto_sub` to watch published decoded frames:
-
-```bash
-mosquitto_sub -h 192.168.1.10 -u "<user>" -P "<password>" -t "huawei-emma-rs485/fc41_frame" -v
+```yaml
+logger:
+  tx_buffer_size: 4096
+  on_message:
+    level: INFO
+    then:
+      - if:
+          condition:
+            lambda: |-
+              return strcmp(tag, "huawei_prop_fc41_frame") == 0;
+          then:
+            - homeassistant.event:
+                event: esphome.huawei_prop_fc41_frame
+                data:
+                  message: !lambda 'return message;'
 ```
+
+This requires the native `api:` component shown in the minimal configuration.
+Home Assistant receives an `esphome.huawei_prop_fc41_frame` event whose
+`message` field contains the summary, decoded tags, and raw frame hex. The event
+can then be consumed by a Home Assistant automation or stored for later use.
 
 ## Hardware
 

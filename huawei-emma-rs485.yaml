@@ -22,6 +22,7 @@ huawei_emma_tlv:
 logger:
   logs:
     huawei_prop: ${huawei_log_level}
+    huawei_prop_fc41_frame: INFO
 
 uart:
   id: huawei_emma_uart
@@ -233,8 +234,8 @@ text_sensor:
     lambda: |-
       return std::nullopt;
 
-  # Latest decoded data frame also published to MQTT topic huawei-emma-rs485/fc41_frame.
-  # One-byte FC41 heartbeats and opaque upload frames do not update this entity.
+  # Latest decoded data frame. One-byte FC41 heartbeats and opaque upload frames
+  # do not update this entity or emit a huawei_prop_fc41_frame export log.
   - platform: template
     id: huawei41_decoded_frame_export
     name: "Huawei FC41 Decoded Frame"
@@ -242,22 +243,6 @@ text_sensor:
     entity_category: diagnostic
     lambda: |-
       return std::nullopt;
-
-  # - platform: template
-  #   id: huawei41_decoded_frame_export_tags
-  #   name: "Huawei FC41 Decoded Frame Tags"
-  #   icon: mdi:tag-multiple
-  #   entity_category: diagnostic
-  #   lambda: |-
-  #     return std::nullopt;
-
-  # - platform: template
-  #   id: huawei41_decoded_frame_export_raw
-  #   name: "Huawei FC41 Decoded Frame Raw"
-  #   icon: mdi:barcode
-  #   entity_category: diagnostic
-  #   lambda: |-
-  #     return std::nullopt;
 
   - platform: template
     id: inverter_bus_clock

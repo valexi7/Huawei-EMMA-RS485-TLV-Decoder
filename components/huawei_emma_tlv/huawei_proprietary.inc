@@ -10,6 +10,7 @@
 #include <vector>
 
 static const char *const HUAWEI_PROP_TAG = "huawei_prop";
+static const char *const HUAWEI_PROP_FC41_FRAME_TAG = "huawei_prop_fc41_frame";
 
 static constexpr uint16_t HP_TAG_LINE_VOLTAGE = 0x774D;       // A-B, B-C, C-A line voltages (×0.1 V)
 static constexpr uint16_t HP_TAG_METER_PHASE_VOLTAGE_AUX = 0x9C52;  // meter-only candidate phase voltages
@@ -551,79 +552,6 @@ static inline void hp_log_hex_chunks(const std::vector<uint8_t> &bytes, size_t s
     ESP_LOGI(HUAWEI_PROP_TAG, "  %s[%u..%u]=%s", label, static_cast<unsigned>(pos - start),
              static_cast<unsigned>(pos - start + chunk_len - 1), hp_hex_slice(bytes, pos, chunk_len).c_str());
   }
-}
-
-static inline std::string hp_json_escape(const std::string &value) {
-  std::string out;
-  out.reserve(value.size() + 8);
-  char buf[7];
-  for (char c : value) {
-    const uint8_t ch = static_cast<uint8_t>(c);
-    switch (c) {
-      case '\\':
-        out += "\\\\";
-        break;
-      case '"':
-        out += "\\\"";
-        break;
-      case '\b':
-        out += "\\b";
-        break;
-      case '\f':
-        out += "\\f";
-        break;
-      case '\n':
-        out += "\\n";
-        break;
-      case '\r':
-        out += "\\r";
-        break;
-      case '\t':
-        out += "\\t";
-        break;
-      default:
-        if (ch < 0x20) {
-          snprintf(buf, sizeof(buf), "\\u%04X", ch);
-          out += buf;
-        } else {
-          out += c;
-        }
-        break;
-    }
-  }
-  return out;
-}
-
-static inline void hp_publish_fc41_frame_to_mqtt(const std::string &summary,
-                                                  const std::string &export_tags,
-                                                  const std::vector<uint8_t> &bytes, size_t p,
-                                                  size_t bounded_end) {
-#ifdef USE_MQTT
-  if (global_mqtt_client != nullptr) {
-    const std::string tags = export_tags.empty() ? "(none)" : export_tags;
-    const std::string raw = hp_hex_slice(bytes, p, bounded_end - p);
-    ESP_LOGI(HUAWEI_PROP_TAG, "Publishing FC41 frame to MQTT topic huawei-emma-rs485/fc41_frame");
-    const bool published = global_mqtt_client->publish_json("huawei-emma-rs485/fc41_frame", [&](JsonObject root) {
-      root["state"] = summary;
-      root["tags"] = tags;
-      root["raw"] = raw;
-    });
-    if (published) {
-      ESP_LOGI(HUAWEI_PROP_TAG, "Published FC41 frame to MQTT topic huawei-emma-rs485/fc41_frame");
-    } else {
-      ESP_LOGW(HUAWEI_PROP_TAG, "MQTT publish rejected for huawei-emma-rs485/fc41_frame");
-    }
-  } else {
-    ESP_LOGW(HUAWEI_PROP_TAG, "MQTT client NULL; add an mqtt: section to the device config to publish FC41 frames");
-  }
-#else
-  (void) summary;
-  (void) export_tags;
-  (void) bytes;
-  (void) p;
-  (void) bounded_end;
-  ESP_LOGW(HUAWEI_PROP_TAG, "USE_MQTT not defined; add mqtt: to the device config and recompile to publish FC41 frames");
-#endif
 }
 
 static inline const char *hp_subfunction_name(uint8_t subfunction) {
@@ -1431,7 +1359,7 @@ static inline std::string hp_walk_tlv_payload(const std::vector<uint8_t> &bytes,
     }
 
     if (!tags.empty())
-      tags += " | ";
+      tags += "; ";
     tags += entry;
     pos += advance;
   }
@@ -1548,7 +1476,7 @@ static inline std::string hp_decode_0x35_tlv(const std::vector<uint8_t> &bytes, 
 }
 
 static inline std::string hp_decode_0x89_report(const std::vector<uint8_t> &bytes, size_t p, size_t payload_start,
-                                                size_t payload_end) {
+                                                size_t payload_end, std::string &tags) {
   const uint8_t device_id = bytes[p];
   const uint16_t len = hp_u16be(bytes[p + 3], bytes[p + 4]);
 
@@ -1563,11 +1491,8 @@ static inline std::string hp_decode_0x89_report(const std::vector<uint8_t> &byte
     summary += skip;
   }
 
-  const std::string tags = hp_walk_tlv_payload(bytes, tlv_start, payload_end, true, device_id);
-  if (!tags.empty()) {
-    summary += " :: ";
-    summary += tags;
-  } else {
+  tags = hp_walk_tlv_payload(bytes, tlv_start, payload_end, true, device_id);
+  if (tags.empty()) {
     hp_try_publish_phase_sensors(device_id, bytes, payload_start, payload_end);
   }
 
@@ -1575,7 +1500,7 @@ static inline std::string hp_decode_0x89_report(const std::vector<uint8_t> &byte
 }
 
 static inline std::string hp_decode_direct_tag_frame(const std::vector<uint8_t> &bytes, size_t p, size_t payload_start,
-                                                     size_t payload_end) {
+                                                     size_t payload_end, std::string &tags) {
   const uint8_t device_id = bytes[p];
   const uint16_t tag = hp_u16be(bytes[p + 2], bytes[p + 3]);
 
@@ -1583,11 +1508,7 @@ static inline std::string hp_decode_direct_tag_frame(const std::vector<uint8_t> 
   snprintf(head, sizeof(head), "dev=%u (0x%02X) fc=0x41 direct-tag=0x%04X", device_id, device_id, tag);
   std::string summary = head;
 
-  const std::string tags = hp_walk_tlv_payload(bytes, payload_start, payload_end, true, device_id);
-  if (!tags.empty()) {
-    summary += " :: ";
-    summary += tags;
-  }
+  tags = hp_walk_tlv_payload(bytes, payload_start, payload_end, true, device_id);
 
   return summary;
 }
@@ -1602,14 +1523,15 @@ static inline std::string hp_decode_0x41_frame(const std::vector<uint8_t> &bytes
 
   const uint8_t subfunction = bytes[p + 2];
   std::string summary;
+  std::string export_tags;
   std::vector<std::string> current_entries;
 
   if (subfunction == HP_FC41_SUBFN_CURRENT_DATA) {
     summary = hp_decode_0x35_tlv(bytes, p, payload_start, payload_end, current_entries);
   } else if (subfunction == HP_FC41_SUBFN_REPORT) {
-    summary = hp_decode_0x89_report(bytes, p, payload_start, payload_end);
+    summary = hp_decode_0x89_report(bytes, p, payload_start, payload_end, export_tags);
   } else if (hp_is_count_u16_tag(hp_u16be(subfunction, bytes[p + 3]))) {
-    summary = hp_decode_direct_tag_frame(bytes, p, payload_start, payload_end);
+    summary = hp_decode_direct_tag_frame(bytes, p, payload_start, payload_end, export_tags);
   } else {
     return {};
   }
@@ -1627,18 +1549,18 @@ static inline std::string hp_decode_0x41_frame(const std::vector<uint8_t> &bytes
   const bool is_heartbeat =
       subfunction == HP_FC41_SUBFN_CURRENT_DATA && payload_end - payload_start == 1;
   if (!is_heartbeat) {
-    std::string export_tags;
     if (subfunction == HP_FC41_SUBFN_CURRENT_DATA) {
       for (const std::string &entry : current_entries) {
         if (!export_tags.empty()) {
-          export_tags += " | ";
+          export_tags += "; ";
         }
         export_tags += entry;
       }
     }
-    ESP_LOGI(HUAWEI_PROP_TAG, "FC41 MQTT export candidate; publishing diagnostic text state and MQTT frame");
     id(huawei41_decoded_frame_export).publish_state(summary);
-    hp_publish_fc41_frame_to_mqtt(summary, export_tags, bytes, p, bounded_end);
+    const std::string raw = hp_hex_slice(bytes, p, bounded_end - p);
+    ESP_LOGI(HUAWEI_PROP_FC41_FRAME_TAG, "%s | %s | %s", summary.c_str(),
+             export_tags.empty() ? "(none)" : export_tags.c_str(), raw.c_str());
   }
   if (subfunction == HP_FC41_SUBFN_CURRENT_DATA || subfunction == HP_FC41_SUBFN_REPORT) {
     hp_log_hex_chunks(bytes, p, bounded_end - p, "raw-frame");
