@@ -618,7 +618,7 @@ static inline void hp_publish_fc41_frame_to_mqtt(const std::string &summary,
   (void) bytes;
   (void) p;
   (void) bounded_end;
-  ESP_LOGW(HUAWEI_PROP_TAG, "USE_MQTT not defined");
+  ESP_LOGW(HUAWEI_PROP_TAG, "USE_MQTT not defined; add mqtt: to the device config and recompile to publish FC41 frames");
 #endif
 }
 
@@ -1620,7 +1620,6 @@ static inline std::string hp_decode_0x41_frame(const std::vector<uint8_t> &bytes
              expected_entries, current_entries[i].c_str());
   }
   hp_publish_dirty_tag_values();
-  const uint8_t device_id = bytes[p];
   const bool is_heartbeat =
       subfunction == HP_FC41_SUBFN_CURRENT_DATA && payload_end - payload_start == 1;
   if (!is_heartbeat) {
