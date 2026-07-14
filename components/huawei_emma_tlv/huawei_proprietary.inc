@@ -600,13 +600,17 @@ static inline void hp_publish_fc41_frame_to_mqtt(const std::string &summary,
                                                   size_t bounded_end) {
 #ifdef USE_MQTT
   if (global_mqtt_client != nullptr) {
-    const std::string json_payload = "{\"state\":\"" + hp_json_escape(summary) +
-                                     "\",\"tags\":\"" +
-                                     hp_json_escape(export_tags.empty() ? "(none)" : export_tags) +
-                                     "\",\"raw\":\"" +
-                                     hp_json_escape(hp_hex_slice(bytes, p, bounded_end - p)) + "\"}";
-    const bool published = global_mqtt_client->publish("huawei-emma-rs485/fc41_frame", json_payload);
-    if (!published) {
+    const std::string tags = export_tags.empty() ? "(none)" : export_tags;
+    const std::string raw = hp_hex_slice(bytes, p, bounded_end - p);
+    ESP_LOGI(HUAWEI_PROP_TAG, "Publishing FC41 frame to MQTT topic huawei-emma-rs485/fc41_frame");
+    const bool published = global_mqtt_client->publish_json("huawei-emma-rs485/fc41_frame", [&](JsonObject root) {
+      root["state"] = summary;
+      root["tags"] = tags;
+      root["raw"] = raw;
+    });
+    if (published) {
+      ESP_LOGI(HUAWEI_PROP_TAG, "Published FC41 frame to MQTT topic huawei-emma-rs485/fc41_frame");
+    } else {
       ESP_LOGW(HUAWEI_PROP_TAG, "MQTT publish rejected for huawei-emma-rs485/fc41_frame");
     }
   } else {
@@ -1632,6 +1636,7 @@ static inline std::string hp_decode_0x41_frame(const std::vector<uint8_t> &bytes
         export_tags += entry;
       }
     }
+    ESP_LOGI(HUAWEI_PROP_TAG, "FC41 MQTT export candidate; publishing diagnostic text state and MQTT frame");
     id(huawei41_decoded_frame_export).publish_state(summary);
     hp_publish_fc41_frame_to_mqtt(summary, export_tags, bytes, p, bounded_end);
   }
