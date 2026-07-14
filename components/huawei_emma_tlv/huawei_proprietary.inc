@@ -558,17 +558,22 @@ static inline void hp_publish_fc41_frame_to_mqtt(const std::string &summary,
                                                   const std::vector<uint8_t> &bytes, size_t p,
                                                   size_t bounded_end) {
 #ifdef USE_MQTT
-  ESP_LOGI(HUAWEI_PROP_TAG, "MQTT enabled");
-  
   if (global_mqtt_client != nullptr) {
-    std::string json_payload = "{\"state\":\"" + summary +
-                               "\",\"tags\":\"" +
-                               (export_tags.empty() ? "(none)" : export_tags) +
-                               "\",\"raw\":\"" +
-                               hp_hex_slice(bytes, p, bounded_end - p) + "\"}";
-    global_mqtt_client->publish("huawei-emma-rs485/fc41_frame", json_payload);
+    const std::string tags = export_tags.empty() ? "(none)" : export_tags;
+    const std::string raw = hp_hex_slice(bytes, p, bounded_end - p);
+    ESP_LOGI(HUAWEI_PROP_TAG, "Publishing FC41 frame to MQTT topic huawei-emma-rs485/fc41_frame");
+    const bool published = global_mqtt_client->publish_json("huawei-emma-rs485/fc41_frame", [&](JsonObject root) {
+      root["state"] = summary;
+      root["tags"] = tags;
+      root["raw"] = raw;
+    });
+    if (published) {
+      ESP_LOGI(HUAWEI_PROP_TAG, "Published FC41 frame to MQTT topic huawei-emma-rs485/fc41_frame");
+    } else {
+      ESP_LOGW(HUAWEI_PROP_TAG, "MQTT publish rejected for huawei-emma-rs485/fc41_frame");
+    }
   } else {
-    ESP_LOGW(HUAWEI_PROP_TAG, "MQTT client NULL");
+    ESP_LOGW(HUAWEI_PROP_TAG, "MQTT client NULL; add an mqtt: section to the device config to publish FC41 frames");
   }
 #else
   (void) summary;
@@ -576,7 +581,7 @@ static inline void hp_publish_fc41_frame_to_mqtt(const std::string &summary,
   (void) bytes;
   (void) p;
   (void) bounded_end;
-  ESP_LOGW(HUAWEI_PROP_TAG, "USE_MQTT not defined");
+  ESP_LOGW(HUAWEI_PROP_TAG, "USE_MQTT not defined; add mqtt: to the device config and recompile to publish FC41 frames");
 #endif
 }
 
@@ -1578,10 +1583,9 @@ static inline std::string hp_decode_0x41_frame(const std::vector<uint8_t> &bytes
              expected_entries, current_entries[i].c_str());
   }
   hp_publish_dirty_tag_values();
-  const uint8_t device_id = bytes[p];
   const bool is_heartbeat =
       subfunction == HP_FC41_SUBFN_CURRENT_DATA && payload_end - payload_start == 1;
-  if (!is_heartbeat && device_id == 0x0C) {
+  if (!is_heartbeat) {
     std::string export_tags;
     if (subfunction == HP_FC41_SUBFN_CURRENT_DATA) {
       for (const std::string &entry : current_entries) {
@@ -1591,6 +1595,7 @@ static inline std::string hp_decode_0x41_frame(const std::vector<uint8_t> &bytes
         export_tags += entry;
       }
     }
+    ESP_LOGI(HUAWEI_PROP_TAG, "FC41 MQTT export candidate; publishing diagnostic text state and MQTT frame");
     id(huawei41_decoded_frame_export).publish_state(summary);
     hp_publish_fc41_frame_to_mqtt(summary, export_tags, bytes, p, bounded_end);
   }
