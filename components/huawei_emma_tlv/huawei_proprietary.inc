@@ -30,12 +30,18 @@ static constexpr uint16_t HP_TAG_INVERTER_CANDIDATE_93C5 = 0x93C5;  // observed 
 static constexpr uint16_t HP_TAG_TOTAL_YIELD = 0x7D6A;      // 0x35 words=2 u32, lifetime kWh (×0.01)
 static constexpr uint16_t HP_TAG_DAILY_ENERGY = 0x7D80;     // 0x35 words=2 u32, daily kWh (×0.01)
 static constexpr uint16_t HP_TAG_INVERTER_TIMES = 0x7D01;   // 0x35 words=6 u32 startup/shutdown/unknown
-static constexpr uint16_t HP_TAG_BATTERY_CHARGED_TODAY = 0x9097;   // 0x35 words=2 u32, kWh (×0.01)
-static constexpr uint16_t HP_TAG_BATTERY_DISCHARGED_TODAY = 0x9398;  // 0x35 words=2 u32, kWh (×0.01)
-static constexpr uint16_t HP_TAG_BATTERY_TOTAL_CHARGE = 0x9394;    // 0x35 words=2 u32, lifetime kWh (×0.01)
-static constexpr uint16_t HP_TAG_BATTERY_TOTAL_DISCHARGE = 0x90CA;  // 0x35 words=10, discharge u32 at byte +5
-static constexpr uint16_t HP_TAG_BATTERY_POWER = 0x9089;           // 0x35 words=2 i32, charge/discharge W
-static constexpr size_t HP_BATTERY_TOTAL_DISCHARGE_OPAQUE_OFFSET = 5;
+static constexpr uint16_t HP_TAG_BATTERY_CHARGED_TODAY = 0x9097;   // u32, kWh (x0.01)
+static constexpr uint16_t HP_TAG_BATTERY_DISCHARGED_TODAY = 0x9099;  // u32, kWh (x0.01)
+static constexpr uint16_t HP_TAG_BATTERY_DISCHARGED_TODAY_LEGACY = 0x9398;
+static constexpr uint16_t HP_TAG_BATTERY_TOTAL_CHARGE = 0x9394;  // legacy/direct u32, kWh (x0.01)
+static constexpr uint16_t HP_TAG_BATTERY_TOTAL_BLOCK = 0x90CA;
+static constexpr uint16_t HP_TAG_BATTERY_TOTAL_DISCHARGE = 0x90CC;
+static constexpr uint16_t HP_TAG_BATTERY_RATED_CAPACITY = 0x90CE;
+static constexpr uint16_t HP_TAG_BATTERY_POWER = 0x9089;  // i32, charge/discharge W
+static constexpr uint16_t HP_TAG_BATTERY_BUS_VOLTAGE = 0x908B;
+static constexpr uint16_t HP_TAG_BATTERY_SOC = 0x908C;
+static constexpr uint16_t HP_TAG_BATTERY_BUS_CURRENT = 0x909D;
+static constexpr uint16_t HP_TAG_BATTERY_INTERNAL_TEMPERATURE = 0x909E;
 static constexpr uint16_t HP_TAG_INVERTER_SOLAR_PV = 0x7E44;         // 0x35 words=4 i32[2], PV1/PV2 watts
 static constexpr uint16_t HP_TAG_SECONDARY_ACTIVE_POWER = 0x9385;  // inverter secondary active-power candidate
 static constexpr uint16_t HP_TAG_BUS_CLOCK = 0x7D6E;             // variable words: u32 unix sec, optional u32 seq
@@ -52,6 +58,18 @@ static constexpr uint16_t HP_TAG_BATTERY_PACK_2_HIGHEST_TEMP = 0x9636;  // ×0.1
 static constexpr uint16_t HP_TAG_BATTERY_PACK_2_LOWEST_TEMP = 0x9637;   // ×0.1 °C
 static constexpr uint16_t HP_TAG_BATTERY_PACK_3_HIGHEST_TEMP = 0x9638;  // ×0.1 °C
 static constexpr uint16_t HP_TAG_BATTERY_PACK_3_LOWEST_TEMP = 0x9639;   // ×0.1 °C
+static constexpr uint16_t HP_TAG_BATTERY_PACK_1_SOC = 0x9555;
+static constexpr uint16_t HP_TAG_BATTERY_PACK_1_POWER = 0x9559;
+static constexpr uint16_t HP_TAG_BATTERY_PACK_1_VOLTAGE = 0x955B;
+static constexpr uint16_t HP_TAG_BATTERY_PACK_1_TOTAL_ENERGY = 0x9560;
+static constexpr uint16_t HP_TAG_BATTERY_PACK_2_SOC = 0x957F;
+static constexpr uint16_t HP_TAG_BATTERY_PACK_2_POWER = 0x9583;
+static constexpr uint16_t HP_TAG_BATTERY_PACK_2_VOLTAGE = 0x9585;
+static constexpr uint16_t HP_TAG_BATTERY_PACK_2_TOTAL_ENERGY = 0x958A;
+static constexpr uint16_t HP_TAG_BATTERY_PACK_3_SOC = 0x95A9;
+static constexpr uint16_t HP_TAG_BATTERY_PACK_3_POWER = 0x95AD;
+static constexpr uint16_t HP_TAG_BATTERY_PACK_3_VOLTAGE = 0x95AF;
+static constexpr uint16_t HP_TAG_BATTERY_PACK_3_TOTAL_ENERGY = 0x95B4;
 static constexpr size_t HP_BATTERY_MODULE_MODEL_FIELD_BYTES = 30;
 static constexpr size_t HP_BATTERY_PACK_COUNT = 3;
 static constexpr float HP_ENERGY_YIELD_SCALE = 0.01f;
@@ -60,6 +78,10 @@ static constexpr float HP_PHASE_VOLTAGE_SCALE = 0.1f;
 static constexpr float HP_PHASE_CURRENT_SCALE = 0.001f;
 static constexpr float HP_GRID_FREQUENCY_SCALE = 0.01f;
 static constexpr float HP_TEMPERATURE_SCALE = 0.1f;
+static constexpr float HP_BATTERY_VOLTAGE_SCALE = 0.1f;
+static constexpr float HP_BATTERY_CURRENT_SCALE = 0.1f;
+static constexpr float HP_BATTERY_SOC_SCALE = 0.1f;
+static constexpr float HP_BATTERY_CAPACITY_SCALE = 0.001f;
 static constexpr size_t HP_DISCOVERED_DEVICE_SLOTS = 16;
 static constexpr size_t HP_DISCOVERED_TAG_SLOTS = 128;
 static constexpr size_t HP_TAG_DEVICE_SLOTS = 8;
@@ -666,6 +688,76 @@ static inline int16_t hp_i16be(uint8_t hi, uint8_t lo) {
   return static_cast<int16_t>(hp_u16be(hi, lo));
 }
 
+// A current-data item is a contiguous register window. A known field is safe
+// to read only when every word of that field is inside the advertised window.
+static inline bool hp_current_block_field_offset(uint16_t block_start, uint8_t word_count, uint16_t field_register,
+                                                 size_t field_words, size_t *byte_offset) {
+  if (field_register < block_start || field_words == 0)
+    return false;
+  const uint32_t offset_words = static_cast<uint32_t>(field_register) - block_start;
+  if (offset_words + field_words > word_count)
+    return false;
+  *byte_offset = static_cast<size_t>(offset_words) * 2;
+  return true;
+}
+
+static inline bool hp_current_block_u16(const std::vector<uint8_t> &bytes, size_t value_start, size_t val_size,
+                                        uint16_t block_start, uint8_t word_count, uint16_t field_register,
+                                        uint16_t *value) {
+  size_t offset = 0;
+  if (!hp_current_block_field_offset(block_start, word_count, field_register, 1, &offset) ||
+      offset + 2 > val_size || value_start + offset + 2 > bytes.size())
+    return false;
+  *value = hp_u16be(bytes[value_start + offset], bytes[value_start + offset + 1]);
+  return true;
+}
+
+static inline bool hp_current_block_i16(const std::vector<uint8_t> &bytes, size_t value_start, size_t val_size,
+                                        uint16_t block_start, uint8_t word_count, uint16_t field_register,
+                                        int16_t *value) {
+  uint16_t raw = 0;
+  if (!hp_current_block_u16(bytes, value_start, val_size, block_start, word_count, field_register, &raw))
+    return false;
+  *value = static_cast<int16_t>(raw);
+  return true;
+}
+
+static inline bool hp_current_block_u32(const std::vector<uint8_t> &bytes, size_t value_start, size_t val_size,
+                                        uint16_t block_start, uint8_t word_count, uint16_t field_register,
+                                        uint32_t *value) {
+  size_t offset = 0;
+  if (!hp_current_block_field_offset(block_start, word_count, field_register, 2, &offset) ||
+      offset + 4 > val_size || value_start + offset + 4 > bytes.size())
+    return false;
+  *value = hp_u32be(bytes, value_start + offset);
+  return true;
+}
+
+static inline bool hp_current_block_i32(const std::vector<uint8_t> &bytes, size_t value_start, size_t val_size,
+                                        uint16_t block_start, uint8_t word_count, uint16_t field_register,
+                                        int32_t *value) {
+  uint32_t raw = 0;
+  if (!hp_current_block_u32(bytes, value_start, val_size, block_start, word_count, field_register, &raw))
+    return false;
+  *value = static_cast<int32_t>(raw);
+  return true;
+}
+
+static inline bool hp_tlv_inline_length_tag(uint16_t tag) {
+  switch (tag) {
+    case HP_TAG_SERIAL_NUMBER:
+    case HP_TAG_INVERTER_IDENTIFICATION:
+    case HP_TAG_BATTERY_PACK_1_SN_FW:
+    case HP_TAG_BATTERY_PACK_2_SN_FW:
+    case HP_TAG_BATTERY_PACK_3_SN_FW:
+    case HP_TAG_BATTERY_PACK_MODEL:
+    case HP_TAG_BATTERY_PACK_MODELS:
+      return true;
+    default:
+      return false;
+  }
+}
+
 static inline bool hp_tlv_type_size(uint8_t type, size_t *out_size) {
   switch (type) {
     case 0x01:
@@ -693,9 +785,8 @@ static inline bool hp_tlv_type_size(uint8_t type, size_t *out_size) {
       *out_size = 12;
       return true;
     default:
-      // Huawei scalar/container type codes observed so far are in the
-      // 0x01..0x0C range. Larger values in FC41 TLVs are commonly an
-      // inline byte length for ASCII strings or opaque blobs.
+      // Values >= 0x20 may be inline byte lengths, but callers must also
+      // validate that the tag is a known variable-length field.
       if (type >= 0x20) {
         *out_size = type;
         return true;
@@ -725,7 +816,7 @@ static inline bool hp_find_count_u16_tag(const std::vector<uint8_t> &bytes, size
   return false;
 }
 
-static inline void hp_publish_line_voltage_sensors(uint8_t device_id, const uint16_t *values) {
+template<typename T> static inline void hp_publish_line_voltage_sensors(uint8_t device_id, const T *values) {
   if (device_id == HP_DEV_METER) {
     id(meter_line_ab_voltage).publish_state(static_cast<float>(values[0]) * HP_LINE_VOLTAGE_SCALE);
     id(meter_line_bc_voltage).publish_state(static_cast<float>(values[1]) * HP_LINE_VOLTAGE_SCALE);
@@ -737,7 +828,7 @@ static inline void hp_publish_line_voltage_sensors(uint8_t device_id, const uint
   }
 }
 
-static inline void hp_publish_phase_voltage_sensors(uint8_t device_id, const uint16_t *values) {
+template<typename T> static inline void hp_publish_phase_voltage_sensors(uint8_t device_id, const T *values) {
   if (device_id != HP_DEV_INVERTER)
     return;
   id(inverter_phase_a_voltage).publish_state(static_cast<float>(values[0]) * HP_PHASE_VOLTAGE_SCALE);
@@ -955,9 +1046,16 @@ static inline bool hp_tag_has_established_semantics(uint8_t device_id, uint16_t 
     case HP_TAG_INVERTER_TIMES:
     case HP_TAG_BATTERY_CHARGED_TODAY:
     case HP_TAG_BATTERY_DISCHARGED_TODAY:
+    case HP_TAG_BATTERY_DISCHARGED_TODAY_LEGACY:
     case HP_TAG_BATTERY_TOTAL_CHARGE:
+    case HP_TAG_BATTERY_TOTAL_BLOCK:
     case HP_TAG_BATTERY_TOTAL_DISCHARGE:
+    case HP_TAG_BATTERY_RATED_CAPACITY:
     case HP_TAG_BATTERY_POWER:
+    case HP_TAG_BATTERY_BUS_VOLTAGE:
+    case HP_TAG_BATTERY_SOC:
+    case HP_TAG_BATTERY_BUS_CURRENT:
+    case HP_TAG_BATTERY_INTERNAL_TEMPERATURE:
     case HP_TAG_INVERTER_SOLAR_PV:
     case HP_TAG_BUS_CLOCK:
     case HP_TAG_SERIAL_NUMBER:
@@ -1097,12 +1195,12 @@ static inline bool hp_battery_pack_identity_offsets(uint16_t tag, size_t *sn_off
       *fw_offset = 20;
       return true;
     case HP_TAG_BATTERY_PACK_2_SN_FW:
-      *sn_offset = 20;
-      *fw_offset = 40;
+      *sn_offset = 18;
+      *fw_offset = 38;
       return true;
     case HP_TAG_BATTERY_PACK_3_SN_FW:
-      *sn_offset = 20;
-      *fw_offset = 40;
+      *sn_offset = 18;
+      *fw_offset = 38;
       return true;
     default:
       return false;
@@ -1165,6 +1263,40 @@ static inline void hp_try_publish_battery_pack_identity_values(uint8_t device_id
     hp_publish_optional_text_sensor("Battery Firmware", firmware);
 }
 
+static inline std::string hp_current_block_ascii_field(const std::vector<uint8_t> &bytes, size_t value_start,
+                                                       size_t val_size, uint16_t block_start, uint8_t word_count,
+                                                       uint16_t field_register, size_t field_len) {
+  size_t offset = 0;
+  const size_t field_words = (field_len + 1) / 2;
+  if (!hp_current_block_field_offset(block_start, word_count, field_register, field_words, &offset) ||
+      offset + field_len > val_size || value_start + offset + field_len > bytes.size())
+    return std::string();
+  return hp_tlv_value_to_ascii(bytes, value_start + offset, field_len);
+}
+
+static inline void hp_try_publish_battery_pack_identity_registers(uint8_t device_id,
+                                                                  const std::vector<uint8_t> &bytes,
+                                                                  size_t value_start, size_t val_size,
+                                                                  uint16_t block_start, uint8_t word_count) {
+  if (device_id != HP_DEV_INVERTER)
+    return;
+
+  const uint16_t sn_registers[3] = {0x9538, 0x9562, 0x958C};
+  const uint16_t firmware_registers[3] = {0x9542, 0x956C, 0x9596};
+  const char *sn_names[3] = {"Battery Pack 1 SN", "Battery Pack 2 SN", "Battery Pack 3 SN"};
+  for (size_t pack = 0; pack < HP_BATTERY_PACK_COUNT; pack++) {
+    const std::string serial = hp_current_block_ascii_field(bytes, value_start, val_size, block_start, word_count,
+                                                            sn_registers[pack], 12);
+    if (hp_string_starts_with(serial, "EX"))
+      hp_publish_optional_text_sensor(sn_names[pack], serial);
+
+    const std::string firmware = hp_current_block_ascii_field(
+        bytes, value_start, val_size, block_start, word_count, firmware_registers[pack], 17);
+    if (hp_string_starts_with(firmware, "V"))
+      hp_publish_optional_text_sensor("Battery Firmware", firmware);
+  }
+}
+
 static inline bool hp_is_battery_pack_temperature_tag(uint16_t tag) {
   return tag == HP_TAG_BATTERY_PACK_1_HIGHEST_TEMP || tag == HP_TAG_BATTERY_PACK_1_LOWEST_TEMP ||
          tag == HP_TAG_BATTERY_PACK_2_HIGHEST_TEMP || tag == HP_TAG_BATTERY_PACK_2_LOWEST_TEMP ||
@@ -1188,6 +1320,178 @@ static inline const char *hp_battery_pack_temperature_name(uint16_t tag) {
     default:
       return nullptr;
   }
+}
+
+static inline void hp_append_current_field(std::string &summary, const char *field) {
+  if (!summary.empty())
+    summary += " ";
+  summary += field;
+}
+
+static inline std::string hp_publish_current_battery_registers(uint8_t device_id,
+                                                               const std::vector<uint8_t> &bytes,
+                                                               size_t value_start, size_t val_size,
+                                                               uint16_t block_start, uint8_t word_count) {
+  std::string summary;
+  if (device_id != HP_DEV_INVERTER)
+    return summary;
+
+  char field[80];
+  uint16_t u16 = 0;
+  int16_t i16 = 0;
+  uint32_t u32 = 0;
+  int32_t i32 = 0;
+
+  if (hp_current_block_i32(bytes, value_start, val_size, block_start, word_count, HP_TAG_BATTERY_POWER, &i32)) {
+    id(inverter_battery_power).publish_state(static_cast<float>(i32));
+    snprintf(field, sizeof(field), "battery_P=%ldW", static_cast<long>(i32));
+    hp_append_current_field(summary, field);
+  }
+  if (hp_current_block_u16(bytes, value_start, val_size, block_start, word_count, HP_TAG_BATTERY_BUS_VOLTAGE,
+                           &u16)) {
+    const float value = static_cast<float>(u16) * HP_BATTERY_VOLTAGE_SCALE;
+    id(inverter_battery_bus_voltage).publish_state(value);
+    snprintf(field, sizeof(field), "battery_bus=%.1fV", value);
+    hp_append_current_field(summary, field);
+  }
+  if (hp_current_block_u16(bytes, value_start, val_size, block_start, word_count, HP_TAG_BATTERY_SOC, &u16)) {
+    const float value = static_cast<float>(u16) * HP_BATTERY_SOC_SCALE;
+    id(inverter_battery_soc).publish_state(value);
+    snprintf(field, sizeof(field), "battery_soc=%.1f%%", value);
+    hp_append_current_field(summary, field);
+  }
+  if (hp_current_block_u32(bytes, value_start, val_size, block_start, word_count, HP_TAG_BATTERY_CHARGED_TODAY,
+                           &u32)) {
+    const float value = static_cast<float>(u32) * HP_ENERGY_YIELD_SCALE;
+    id(inverter_battery_charged_today).publish_state(value);
+    snprintf(field, sizeof(field), "battery_charged_today=%.2fkWh", value);
+    hp_append_current_field(summary, field);
+  }
+  if (hp_current_block_u32(bytes, value_start, val_size, block_start, word_count, HP_TAG_BATTERY_DISCHARGED_TODAY,
+                           &u32)) {
+    const float value = static_cast<float>(u32) * HP_ENERGY_YIELD_SCALE;
+    id(inverter_battery_discharged_today).publish_state(value);
+    snprintf(field, sizeof(field), "battery_discharged_today=%.2fkWh", value);
+    hp_append_current_field(summary, field);
+  }
+  if (hp_current_block_i16(bytes, value_start, val_size, block_start, word_count, HP_TAG_BATTERY_BUS_CURRENT,
+                           &i16)) {
+    const float value = static_cast<float>(i16) * HP_BATTERY_CURRENT_SCALE;
+    id(inverter_battery_bus_current).publish_state(value);
+    snprintf(field, sizeof(field), "battery_bus_current=%.1fA", value);
+    hp_append_current_field(summary, field);
+  }
+  if (hp_current_block_i16(bytes, value_start, val_size, block_start, word_count,
+                           HP_TAG_BATTERY_INTERNAL_TEMPERATURE, &i16)) {
+    const float value = static_cast<float>(i16) * HP_TEMPERATURE_SCALE;
+    id(inverter_battery_internal_temperature).publish_state(value);
+    snprintf(field, sizeof(field), "battery_internal_temp=%.1fC", value);
+    hp_append_current_field(summary, field);
+  }
+  if (hp_current_block_u32(bytes, value_start, val_size, block_start, word_count, HP_TAG_BATTERY_TOTAL_BLOCK,
+                           &u32)) {
+    const float value = static_cast<float>(u32) * HP_ENERGY_YIELD_SCALE;
+    id(inverter_battery_total_charge).publish_state(value);
+    snprintf(field, sizeof(field), "battery_total_charge=%.2fkWh", value);
+    hp_append_current_field(summary, field);
+  }
+  if (hp_current_block_u32(bytes, value_start, val_size, block_start, word_count,
+                           HP_TAG_BATTERY_TOTAL_DISCHARGE, &u32)) {
+    const float value = static_cast<float>(u32) * HP_ENERGY_YIELD_SCALE;
+    id(inverter_battery_total_discharge).publish_state(value);
+    snprintf(field, sizeof(field), "battery_total_discharge=%.2fkWh", value);
+    hp_append_current_field(summary, field);
+  }
+  if (hp_current_block_u32(bytes, value_start, val_size, block_start, word_count, HP_TAG_BATTERY_RATED_CAPACITY,
+                           &u32)) {
+    const float value = static_cast<float>(u32) * HP_BATTERY_CAPACITY_SCALE;
+    id(inverter_battery_rated_capacity).publish_state(value);
+    snprintf(field, sizeof(field), "battery_rated_capacity=%.3fkWh", value);
+    hp_append_current_field(summary, field);
+  }
+
+  const uint16_t pack_soc_registers[3] = {HP_TAG_BATTERY_PACK_1_SOC, HP_TAG_BATTERY_PACK_2_SOC,
+                                         HP_TAG_BATTERY_PACK_3_SOC};
+  const uint16_t pack_power_registers[3] = {HP_TAG_BATTERY_PACK_1_POWER, HP_TAG_BATTERY_PACK_2_POWER,
+                                           HP_TAG_BATTERY_PACK_3_POWER};
+  const uint16_t pack_voltage_registers[3] = {HP_TAG_BATTERY_PACK_1_VOLTAGE, HP_TAG_BATTERY_PACK_2_VOLTAGE,
+                                             HP_TAG_BATTERY_PACK_3_VOLTAGE};
+  const uint16_t pack_energy_registers[3] = {HP_TAG_BATTERY_PACK_1_TOTAL_ENERGY,
+                                            HP_TAG_BATTERY_PACK_2_TOTAL_ENERGY,
+                                            HP_TAG_BATTERY_PACK_3_TOTAL_ENERGY};
+  for (size_t pack = 0; pack < HP_BATTERY_PACK_COUNT; pack++) {
+    if (hp_current_block_u16(bytes, value_start, val_size, block_start, word_count, pack_soc_registers[pack],
+                             &u16)) {
+      const float value = static_cast<float>(u16) * HP_BATTERY_SOC_SCALE;
+      if (pack == 0)
+        id(inverter_battery_pack_1_soc).publish_state(value);
+      else if (pack == 1)
+        id(inverter_battery_pack_2_soc).publish_state(value);
+      else
+        id(inverter_battery_pack_3_soc).publish_state(value);
+      snprintf(field, sizeof(field), "pack%u_soc=%.1f%%", static_cast<unsigned>(pack + 1), value);
+      hp_append_current_field(summary, field);
+    }
+    if (hp_current_block_i32(bytes, value_start, val_size, block_start, word_count, pack_power_registers[pack],
+                             &i32)) {
+      if (pack == 0)
+        id(inverter_battery_pack_1_power).publish_state(static_cast<float>(i32));
+      else if (pack == 1)
+        id(inverter_battery_pack_2_power).publish_state(static_cast<float>(i32));
+      else
+        id(inverter_battery_pack_3_power).publish_state(static_cast<float>(i32));
+      snprintf(field, sizeof(field), "pack%u_P=%ldW", static_cast<unsigned>(pack + 1), static_cast<long>(i32));
+      hp_append_current_field(summary, field);
+    }
+    if (hp_current_block_u16(bytes, value_start, val_size, block_start, word_count, pack_voltage_registers[pack],
+                             &u16)) {
+      const float value = static_cast<float>(u16) * HP_BATTERY_VOLTAGE_SCALE;
+      if (pack == 0)
+        id(inverter_battery_pack_1_voltage).publish_state(value);
+      else if (pack == 1)
+        id(inverter_battery_pack_2_voltage).publish_state(value);
+      else
+        id(inverter_battery_pack_3_voltage).publish_state(value);
+      snprintf(field, sizeof(field), "pack%u_voltage=%.1fV", static_cast<unsigned>(pack + 1), value);
+      hp_append_current_field(summary, field);
+    }
+    if (hp_current_block_u32(bytes, value_start, val_size, block_start, word_count, pack_energy_registers[pack],
+                             &u32)) {
+      const float value = static_cast<float>(u32) * HP_ENERGY_YIELD_SCALE;
+      if (pack == 0)
+        id(inverter_battery_pack_1_total_energy).publish_state(value);
+      else if (pack == 1)
+        id(inverter_battery_pack_2_total_energy).publish_state(value);
+      else
+        id(inverter_battery_pack_3_total_energy).publish_state(value);
+      snprintf(field, sizeof(field), "pack%u_total_energy=%.2fkWh", static_cast<unsigned>(pack + 1), value);
+      hp_append_current_field(summary, field);
+    }
+  }
+
+  const uint16_t temperature_registers[6] = {
+      HP_TAG_BATTERY_PACK_1_HIGHEST_TEMP, HP_TAG_BATTERY_PACK_1_LOWEST_TEMP,
+      HP_TAG_BATTERY_PACK_2_HIGHEST_TEMP, HP_TAG_BATTERY_PACK_2_LOWEST_TEMP,
+      HP_TAG_BATTERY_PACK_3_HIGHEST_TEMP, HP_TAG_BATTERY_PACK_3_LOWEST_TEMP};
+  for (size_t index = 0; index < 6; index++) {
+    if (!hp_current_block_i16(bytes, value_start, val_size, block_start, word_count, temperature_registers[index],
+                              &i16))
+      continue;
+    const float value = static_cast<float>(i16) * HP_TEMPERATURE_SCALE;
+    switch (index) {
+      case 0: id(inverter_battery_pack_1_highest_temperature).publish_state(value); break;
+      case 1: id(inverter_battery_pack_1_lowest_temperature).publish_state(value); break;
+      case 2: id(inverter_battery_pack_2_highest_temperature).publish_state(value); break;
+      case 3: id(inverter_battery_pack_2_lowest_temperature).publish_state(value); break;
+      case 4: id(inverter_battery_pack_3_highest_temperature).publish_state(value); break;
+      case 5: id(inverter_battery_pack_3_lowest_temperature).publish_state(value); break;
+      default: break;
+    }
+    snprintf(field, sizeof(field), "%s=%.1fC", hp_battery_pack_temperature_name(temperature_registers[index]),
+             value);
+    hp_append_current_field(summary, field);
+  }
+  return summary;
 }
 
 static inline std::string hp_format_scalar_i32_u32(int32_t i32) {
@@ -1239,12 +1543,23 @@ static inline std::string hp_format_typed_tlv(uint8_t device_id, const std::vect
       snprintf(line, sizeof(line), "tag=0x%04X battery_charged=%.2fkWh", tag, i32 * HP_ENERGY_YIELD_SCALE);
       return line;
     }
-    if (tag == HP_TAG_BATTERY_DISCHARGED_TODAY && i32 >= 0) {
+    if ((tag == HP_TAG_BATTERY_DISCHARGED_TODAY || tag == HP_TAG_BATTERY_DISCHARGED_TODAY_LEGACY) &&
+        i32 >= 0) {
       snprintf(line, sizeof(line), "tag=0x%04X battery_discharged=%.2fkWh", tag, i32 * HP_ENERGY_YIELD_SCALE);
       return line;
     }
     if (tag == HP_TAG_BATTERY_TOTAL_CHARGE && i32 >= 0) {
       snprintf(line, sizeof(line), "tag=0x%04X battery_total_charge=%.2fkWh", tag, i32 * HP_ENERGY_YIELD_SCALE);
+      return line;
+    }
+    if (tag == HP_TAG_BATTERY_TOTAL_DISCHARGE && i32 >= 0) {
+      snprintf(line, sizeof(line), "tag=0x%04X battery_total_discharge=%.2fkWh", tag,
+               i32 * HP_ENERGY_YIELD_SCALE);
+      return line;
+    }
+    if (tag == HP_TAG_BATTERY_RATED_CAPACITY && i32 >= 0) {
+      snprintf(line, sizeof(line), "tag=0x%04X battery_rated_capacity=%.3fkWh", tag,
+               i32 * HP_BATTERY_CAPACITY_SCALE);
       return line;
     }
     if (tag == HP_TAG_BATTERY_POWER) {
@@ -1323,9 +1638,9 @@ static inline std::string hp_format_typed_tlv(uint8_t device_id, const std::vect
     return line;
   }
   if (type == 0x0A) {
-    if (tag == HP_TAG_BATTERY_TOTAL_DISCHARGE && pos + 3 + 9 <= bytes.size()) {
+    if (tag == HP_TAG_BATTERY_TOTAL_BLOCK && val_size >= 8 && pos + 3 + val_size <= bytes.size()) {
       const uint32_t charge_raw = hp_u32be(bytes, pos + 3);
-      const uint32_t discharge_raw = hp_u32be(bytes, pos + 3 + HP_BATTERY_TOTAL_DISCHARGE_OPAQUE_OFFSET);
+      const uint32_t discharge_raw = hp_u32be(bytes, pos + 7);
       snprintf(line, sizeof(line), "tag=0x%04X battery_total_charge=%.2fkWh battery_total_discharge=%.2fkWh", tag,
                charge_raw * HP_ENERGY_YIELD_SCALE, discharge_raw * HP_ENERGY_YIELD_SCALE);
       return line;
@@ -1440,7 +1755,7 @@ static inline std::string hp_format_current_data_tlv(uint8_t device_id, const st
   if (word_count == 2 || word_count == 3 || word_count == 4 || word_count == 6)
     return hp_format_typed_tlv(device_id, bytes, pos, tag, word_count, val_size);
 
-  if ((word_count == 10 && (tag == HP_TAG_BATTERY_TOTAL_DISCHARGE || tag == HP_TAG_SERIAL_NUMBER)) ||
+  if ((word_count == 10 && (tag == HP_TAG_BATTERY_TOTAL_BLOCK || tag == HP_TAG_SERIAL_NUMBER)) ||
       (word_count == 12 && (tag == HP_TAG_PHASE_VOLTAGE_U32 || tag == HP_TAG_LINE_VOLTAGE_U32))) {
     const std::string decoded = hp_format_typed_tlv(device_id, bytes, pos, tag, word_count, val_size);
     snprintf(line, sizeof(line), "%s raw=%s", decoded.c_str(), hp_hex_slice(bytes, pos + 3, val_size).c_str());
@@ -1495,6 +1810,8 @@ static inline bool hp_try_parse_typed_tlv(uint8_t device_id, const std::vector<u
   size_t val_size = 0;
   if (!hp_tlv_type_size(type, &val_size))
     return false;
+  if (type >= 0x20 && !hp_tlv_inline_length_tag(tag))
+    return false;
   if (pos + 3 + val_size > end)
     return false;
 
@@ -1540,18 +1857,27 @@ static inline void hp_update_power_factor(uint8_t device_id, bool update_p, floa
   }
 }
 
-static inline void hp_try_publish_phase_from_typed_tlv(uint8_t device_id, uint16_t tag, uint8_t type,
-                                                       const std::vector<uint8_t> &bytes, size_t pos) {
-  if (tag == HP_TAG_BATTERY_TOTAL_DISCHARGE && type == 0x0A) {
-    if (device_id != HP_DEV_INVERTER || pos + 3 + 9 > bytes.size())
+static inline void hp_try_publish_known_tlv(uint8_t device_id, uint16_t tag, uint8_t type,
+                                            const std::vector<uint8_t> &bytes, size_t pos, size_t val_size) {
+  if (pos + 3 + val_size > bytes.size())
+    return;
+
+  if (tag == HP_TAG_BATTERY_TOTAL_BLOCK && type == 0x0A) {
+    if (device_id != HP_DEV_INVERTER || val_size < 8)
       return;
-    const uint32_t discharge_raw = hp_u32be(bytes, pos + 3 + HP_BATTERY_TOTAL_DISCHARGE_OPAQUE_OFFSET);
+    const uint32_t charge_raw = hp_u32be(bytes, pos + 3);
+    const uint32_t discharge_raw = hp_u32be(bytes, pos + 7);
+    id(inverter_battery_total_charge).publish_state(static_cast<float>(charge_raw) * HP_ENERGY_YIELD_SCALE);
     id(inverter_battery_total_discharge).publish_state(static_cast<float>(discharge_raw) * HP_ENERGY_YIELD_SCALE);
+    if (val_size >= 12) {
+      const uint32_t capacity_raw = hp_u32be(bytes, pos + 11);
+      id(inverter_battery_rated_capacity).publish_state(static_cast<float>(capacity_raw) * HP_BATTERY_CAPACITY_SCALE);
+    }
     return;
   }
 
   if (tag == HP_TAG_INVERTER_SOLAR_PV && type == 0x04) {
-    if (device_id != HP_DEV_INVERTER)
+    if (device_id != HP_DEV_INVERTER || val_size < 8)
       return;
     id(inverter_solar_power_pv1).publish_state(static_cast<float>(hp_i32be(bytes, pos + 3)));
     id(inverter_solar_power_pv2).publish_state(static_cast<float>(hp_i32be(bytes, pos + 7)));
@@ -1560,41 +1886,12 @@ static inline void hp_try_publish_phase_from_typed_tlv(uint8_t device_id, uint16
 
 
   if (tag == HP_TAG_INVERTER_IDENTIFICATION && type >= 0x20) {
-    hp_try_publish_inverter_identification_value(device_id, tag, bytes, pos, type);
+    hp_try_publish_inverter_identification_value(device_id, tag, bytes, pos, val_size);
     return;
   }
 
   if (hp_is_battery_pack_identity_tag(tag) && type >= 0x20) {
-    hp_try_publish_battery_pack_identity_values(device_id, tag, bytes, pos, type);
-    return;
-  }
-
-  if (hp_is_battery_pack_temperature_tag(tag) && type == 0x01) {
-    if (device_id != HP_DEV_INVERTER || pos + 5 > bytes.size())
-      return;
-    const float temp_c = static_cast<float>(hp_i16be(bytes[pos + 3], bytes[pos + 4])) * HP_TEMPERATURE_SCALE;
-    switch (tag) {
-      case HP_TAG_BATTERY_PACK_1_HIGHEST_TEMP:
-        id(inverter_battery_pack_1_highest_temperature).publish_state(temp_c);
-        break;
-      case HP_TAG_BATTERY_PACK_1_LOWEST_TEMP:
-        id(inverter_battery_pack_1_lowest_temperature).publish_state(temp_c);
-        break;
-      case HP_TAG_BATTERY_PACK_2_HIGHEST_TEMP:
-        id(inverter_battery_pack_2_highest_temperature).publish_state(temp_c);
-        break;
-      case HP_TAG_BATTERY_PACK_2_LOWEST_TEMP:
-        id(inverter_battery_pack_2_lowest_temperature).publish_state(temp_c);
-        break;
-      case HP_TAG_BATTERY_PACK_3_HIGHEST_TEMP:
-        id(inverter_battery_pack_3_highest_temperature).publish_state(temp_c);
-        break;
-      case HP_TAG_BATTERY_PACK_3_LOWEST_TEMP:
-        id(inverter_battery_pack_3_lowest_temperature).publish_state(temp_c);
-        break;
-      default:
-        break;
-    }
+    hp_try_publish_battery_pack_identity_values(device_id, tag, bytes, pos, val_size);
     return;
   }
 
@@ -1642,7 +1939,8 @@ static inline void hp_try_publish_phase_from_typed_tlv(uint8_t device_id, uint16
     id(inverter_battery_charged_today).publish_state(kwh);
     return;
   }
-  if (tag == HP_TAG_BATTERY_DISCHARGED_TODAY && type == 0x02) {
+  if ((tag == HP_TAG_BATTERY_DISCHARGED_TODAY || tag == HP_TAG_BATTERY_DISCHARGED_TODAY_LEGACY) &&
+      type == 0x02) {
     if (device_id != HP_DEV_INVERTER)
       return;
     const float kwh = static_cast<float>(hp_u32be(bytes, pos + 3)) * HP_ENERGY_YIELD_SCALE;
@@ -1660,6 +1958,20 @@ static inline void hp_try_publish_phase_from_typed_tlv(uint8_t device_id, uint16
       return;
     const float kwh = static_cast<float>(hp_u32be(bytes, pos + 3)) * HP_ENERGY_YIELD_SCALE;
     id(inverter_battery_total_charge).publish_state(kwh);
+    return;
+  }
+  if (tag == HP_TAG_BATTERY_TOTAL_DISCHARGE && type == 0x02) {
+    if (device_id != HP_DEV_INVERTER)
+      return;
+    const float kwh = static_cast<float>(hp_u32be(bytes, pos + 3)) * HP_ENERGY_YIELD_SCALE;
+    id(inverter_battery_total_discharge).publish_state(kwh);
+    return;
+  }
+  if (tag == HP_TAG_BATTERY_RATED_CAPACITY && type == 0x02) {
+    if (device_id != HP_DEV_INVERTER)
+      return;
+    const float kwh = static_cast<float>(hp_u32be(bytes, pos + 3)) * HP_BATTERY_CAPACITY_SCALE;
+    id(inverter_battery_rated_capacity).publish_state(kwh);
     return;
   }
   if (tag == HP_TAG_PHASE_CURRENT && type == 0x06) {
@@ -1704,20 +2016,14 @@ static inline void hp_try_publish_phase_from_typed_tlv(uint8_t device_id, uint16
     return;
   }
   if (tag == HP_TAG_PHASE_VOLTAGE_U32 && (type == 0x0C || type == 0x06)) {
-    const uint32_t u1 = hp_u32be(bytes, pos + 3);
-    const uint32_t u2 = hp_u32be(bytes, pos + 7);
-    const uint32_t u3 = hp_u32be(bytes, pos + 11);
-    voltages[0] = static_cast<uint16_t>(u1 & 0xFFFF);
-    voltages[1] = static_cast<uint16_t>(u2 & 0xFFFF);
-    voltages[2] = static_cast<uint16_t>(u3 & 0xFFFF);
-    hp_publish_phase_voltage_sensors(device_id, voltages);
+    const uint32_t u32_voltages[3] = {hp_u32be(bytes, pos + 3), hp_u32be(bytes, pos + 7),
+                                      hp_u32be(bytes, pos + 11)};
+    hp_publish_phase_voltage_sensors(device_id, u32_voltages);
     return;
   }
   if (tag == HP_TAG_LINE_VOLTAGE_U32 && type == 0x0C) {
-    const uint32_t u1 = hp_u32be(bytes, pos + 3);
-    const uint32_t u2 = hp_u32be(bytes, pos + 7);
-    const uint32_t u3 = hp_u32be(bytes, pos + 11);
-    const uint16_t line_v[3] = {static_cast<uint16_t>(u1), static_cast<uint16_t>(u2), static_cast<uint16_t>(u3)};
+    const uint32_t line_v[3] = {hp_u32be(bytes, pos + 3), hp_u32be(bytes, pos + 7),
+                                hp_u32be(bytes, pos + 11)};
     hp_publish_line_voltage_sensors(device_id, line_v);
   }
 }
@@ -1739,16 +2045,22 @@ static inline void hp_walk_current_data_tlvs(const std::vector<uint8_t> &bytes, 
     if (pos + 3 + val_size > end)
       break;
 
-    const std::string entry = hp_format_current_data_tlv(device_id, bytes, pos, tag, word_count, val_size);
+    std::string entry = hp_format_current_data_tlv(device_id, bytes, pos, tag, word_count, val_size);
+    const std::string battery_fields = hp_publish_current_battery_registers(
+        device_id, bytes, pos + 3, val_size, tag, word_count);
+    if (!battery_fields.empty()) {
+      entry += " decoded={";
+      entry += battery_fields;
+      entry += "}";
+    }
     entries.push_back(entry);
     hp_note_tag_observation(device_id, tag, entry, hp_hex_slice(bytes, pos + 3, std::min(val_size, size_t{6})));
 
     hp_try_publish_bus_clock_value(device_id, tag, bytes, pos, val_size);
     hp_try_publish_serial_number_value(device_id, tag, bytes, pos, val_size);
-    hp_try_publish_inverter_identification_value(device_id, tag, bytes, pos, val_size);
     hp_try_publish_battery_model_values(device_id, tag, bytes, pos, val_size);
-    hp_try_publish_battery_pack_identity_values(device_id, tag, bytes, pos, val_size);
-    hp_try_publish_phase_from_typed_tlv(device_id, tag, word_count, bytes, pos);
+    hp_try_publish_battery_pack_identity_registers(device_id, bytes, pos + 3, val_size, tag, word_count);
+    hp_try_publish_known_tlv(device_id, tag, word_count, bytes, pos, val_size);
 
     pos += 3 + val_size;
     parsed_count++;
@@ -1789,7 +2101,7 @@ static inline std::string hp_walk_tlv_payload(const std::vector<uint8_t> &bytes,
 
     if (publish_phase) {
       if (is_typed) {
-        hp_try_publish_phase_from_typed_tlv(device_id, tag, bytes[pos + 2], bytes, pos);
+        hp_try_publish_known_tlv(device_id, tag, bytes[pos + 2], bytes, pos, advance - 3);
       } else if (tag == HP_TAG_LINE_VOLTAGE || tag == HP_TAG_METER_PHASE_VOLTAGE_AUX ||
                  tag == HP_TAG_GRID_FREQ_PHASE_V || tag == HP_TAG_METER_PHASE_VOLTAGE ||
                  tag == HP_TAG_METER_PHASE_VOLTAGE_ALT) {

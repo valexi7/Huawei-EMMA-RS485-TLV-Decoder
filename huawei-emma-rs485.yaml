@@ -60,6 +60,7 @@ text_sensor:
 
   - platform: template
     id: emma_discovered_tags_1
+    internal: true
     name: "EMMA Discovered FC41 Tags 1"
     icon: mdi:tag-multiple
     entity_category: diagnostic
@@ -68,6 +69,7 @@ text_sensor:
 
   - platform: template
     id: emma_discovered_tags_2
+    internal: true
     name: "EMMA Discovered FC41 Tags 2"
     icon: mdi:tag-multiple
     entity_category: diagnostic
@@ -76,6 +78,7 @@ text_sensor:
 
   - platform: template
     id: emma_discovered_tags_3
+    internal: true
     name: "EMMA Discovered FC41 Tags 3"
     icon: mdi:tag-multiple
     entity_category: diagnostic
@@ -84,6 +87,7 @@ text_sensor:
 
   - platform: template
     id: emma_discovered_tags_4
+    internal: true
     name: "EMMA Discovered FC41 Tags 4"
     icon: mdi:tag-multiple
     entity_category: diagnostic
@@ -92,6 +96,7 @@ text_sensor:
 
   - platform: template
     id: emma_discovered_tags_5
+    internal: true
     name: "EMMA Discovered FC41 Tags 5"
     icon: mdi:tag-multiple
     entity_category: diagnostic
@@ -254,6 +259,7 @@ text_sensor:
 
   - platform: template
     id: emma_serial_number
+    internal: true
     name: "EMMA Serial Number"
     icon: mdi:barcode
     entity_category: diagnostic
@@ -726,6 +732,50 @@ sensor:
       return std::nullopt;
 
   - platform: template
+    id: inverter_battery_bus_voltage
+    name: "Inverter Battery Bus Voltage"
+    icon: mdi:current-dc
+    device_class: voltage
+    state_class: measurement
+    unit_of_measurement: V
+    accuracy_decimals: 1
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_battery_soc
+    name: "Inverter Battery State of Charge"
+    icon: mdi:battery
+    device_class: battery
+    state_class: measurement
+    unit_of_measurement: "%"
+    accuracy_decimals: 1
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_battery_bus_current
+    name: "Inverter Battery Bus Current"
+    icon: mdi:current-dc
+    device_class: current
+    state_class: measurement
+    unit_of_measurement: A
+    accuracy_decimals: 1
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_battery_internal_temperature
+    name: "Inverter Battery Internal Temperature"
+    icon: mdi:thermometer
+    device_class: temperature
+    state_class: measurement
+    unit_of_measurement: °C
+    accuracy_decimals: 1
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
     id: inverter_battery_total_charge
     name: "Inverter Battery Total Charge"
     icon: mdi:battery-charging
@@ -740,6 +790,149 @@ sensor:
     id: inverter_battery_total_discharge
     name: "Inverter Battery Total Discharge"
     icon: mdi:battery-arrow-down
+    device_class: energy
+    state_class: total_increasing
+    unit_of_measurement: kWh
+    accuracy_decimals: 2
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_battery_rated_capacity
+    name: "Inverter Battery Rated Capacity"
+    icon: mdi:battery-high
+    device_class: energy
+    state_class: measurement
+    unit_of_measurement: kWh
+    accuracy_decimals: 3
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_battery_pack_1_soc
+    name: "Inverter Battery Pack 1 State of Charge"
+    icon: mdi:battery
+    device_class: battery
+    state_class: measurement
+    unit_of_measurement: "%"
+    accuracy_decimals: 1
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_battery_pack_1_power
+    name: "Inverter Battery Pack 1 Power"
+    icon: mdi:battery
+    device_class: power
+    state_class: measurement
+    unit_of_measurement: W
+    accuracy_decimals: 0
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_battery_pack_1_voltage
+    name: "Inverter Battery Pack 1 Voltage"
+    icon: mdi:current-dc
+    device_class: voltage
+    state_class: measurement
+    unit_of_measurement: V
+    accuracy_decimals: 1
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_battery_pack_1_total_energy
+    name: "Inverter Battery Pack 1 Total Energy"
+    icon: mdi:counter
+    device_class: energy
+    state_class: total_increasing
+    unit_of_measurement: kWh
+    accuracy_decimals: 2
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_battery_pack_2_soc
+    name: "Inverter Battery Pack 2 State of Charge"
+    icon: mdi:battery
+    device_class: battery
+    state_class: measurement
+    unit_of_measurement: "%"
+    accuracy_decimals: 1
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_battery_pack_2_power
+    name: "Inverter Battery Pack 2 Power"
+    icon: mdi:battery
+    device_class: power
+    state_class: measurement
+    unit_of_measurement: W
+    accuracy_decimals: 0
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_battery_pack_2_voltage
+    name: "Inverter Battery Pack 2 Voltage"
+    icon: mdi:current-dc
+    device_class: voltage
+    state_class: measurement
+    unit_of_measurement: V
+    accuracy_decimals: 1
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_battery_pack_2_total_energy
+    name: "Inverter Battery Pack 2 Total Energy"
+    icon: mdi:counter
+    device_class: energy
+    state_class: total_increasing
+    unit_of_measurement: kWh
+    accuracy_decimals: 2
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_battery_pack_3_soc
+    name: "Inverter Battery Pack 3 State of Charge"
+    icon: mdi:battery
+    device_class: battery
+    state_class: measurement
+    unit_of_measurement: "%"
+    accuracy_decimals: 1
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_battery_pack_3_power
+    name: "Inverter Battery Pack 3 Power"
+    icon: mdi:battery
+    device_class: power
+    state_class: measurement
+    unit_of_measurement: W
+    accuracy_decimals: 0
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_battery_pack_3_voltage
+    name: "Inverter Battery Pack 3 Voltage"
+    icon: mdi:current-dc
+    device_class: voltage
+    state_class: measurement
+    unit_of_measurement: V
+    accuracy_decimals: 1
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_battery_pack_3_total_energy
+    name: "Inverter Battery Pack 3 Total Energy"
+    icon: mdi:counter
     device_class: energy
     state_class: total_increasing
     unit_of_measurement: kWh
@@ -813,9 +1006,11 @@ sensor:
     lambda: |-
       return std::nullopt;
 
-  # EMMA — device ID 0 (0x00); active power may be negative when feeding the grid
+  # EMMA — device ID 0 (0x00). Kept internal until current EMMA traffic is observed again.
+  # Active power may be negative when feeding the grid.
   - platform: template
     id: emma_phase_a_voltage
+    internal: true
     name: "EMMA Phase A Voltage"
     icon: mdi:sine-wave
     device_class: voltage
@@ -827,6 +1022,7 @@ sensor:
 
   - platform: template
     id: emma_phase_b_voltage
+    internal: true
     name: "EMMA Phase B Voltage"
     icon: mdi:sine-wave
     device_class: voltage
@@ -838,6 +1034,7 @@ sensor:
 
   - platform: template
     id: emma_phase_c_voltage
+    internal: true
     name: "EMMA Phase C Voltage"
     icon: mdi:sine-wave
     device_class: voltage
@@ -849,6 +1046,7 @@ sensor:
 
   - platform: template
     id: emma_line_ab_voltage
+    internal: true
     name: "EMMA Line A-B Voltage"
     icon: mdi:sine-wave
     device_class: voltage
@@ -860,6 +1058,7 @@ sensor:
 
   - platform: template
     id: emma_line_bc_voltage
+    internal: true
     name: "EMMA Line B-C Voltage"
     icon: mdi:sine-wave
     device_class: voltage
@@ -871,6 +1070,7 @@ sensor:
 
   - platform: template
     id: emma_line_ca_voltage
+    internal: true
     name: "EMMA Line C-A Voltage"
     icon: mdi:sine-wave
     device_class: voltage
@@ -882,6 +1082,7 @@ sensor:
 
   - platform: template
     id: emma_phase_a_current
+    internal: true
     name: "EMMA Phase A Current"
     icon: mdi:current-ac
     device_class: current
@@ -893,6 +1094,7 @@ sensor:
 
   - platform: template
     id: emma_phase_b_current
+    internal: true
     name: "EMMA Phase B Current"
     icon: mdi:current-ac
     device_class: current
@@ -904,6 +1106,7 @@ sensor:
 
   - platform: template
     id: emma_phase_c_current
+    internal: true
     name: "EMMA Phase C Current"
     icon: mdi:current-ac
     device_class: current
@@ -915,6 +1118,7 @@ sensor:
 
   - platform: template
     id: emma_phase_a_power
+    internal: true
     name: "EMMA Phase A Power"
     icon: mdi:flash
     device_class: power
@@ -926,6 +1130,7 @@ sensor:
 
   - platform: template
     id: emma_phase_b_power
+    internal: true
     name: "EMMA Phase B Power"
     icon: mdi:flash
     device_class: power
@@ -937,6 +1142,7 @@ sensor:
 
   - platform: template
     id: emma_phase_c_power
+    internal: true
     name: "EMMA Phase C Power"
     icon: mdi:flash
     device_class: power
@@ -948,6 +1154,7 @@ sensor:
 
   - platform: template
     id: emma_active_power
+    internal: true
     name: "EMMA Active Power"
     icon: mdi:transmission-tower
     device_class: power
@@ -959,6 +1166,7 @@ sensor:
 
   - platform: template
     id: emma_reactive_power
+    internal: true
     name: "EMMA Reactive Power"
     icon: mdi:flash
     device_class: reactive_power
@@ -970,6 +1178,7 @@ sensor:
 
   - platform: template
     id: emma_power_factor
+    internal: true
     name: "EMMA Power Factor"
     icon: mdi:angle-acute
     device_class: power_factor
@@ -980,6 +1189,7 @@ sensor:
 
   - platform: template
     id: emma_total_yield
+    internal: true
     name: "EMMA Total Yield"
     icon: mdi:transmission-tower
     device_class: energy
@@ -991,6 +1201,7 @@ sensor:
 
   - platform: template
     id: emma_daily_energy
+    internal: true
     name: "EMMA Daily Energy"
     icon: mdi:transmission-tower
     device_class: energy

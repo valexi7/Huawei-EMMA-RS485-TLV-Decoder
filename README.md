@@ -199,9 +199,23 @@ the repository's local `components` directory while testing.
 - `huawei-emma-rs485.yaml` - reusable ESPHome sensors and UART decoder package.
 - `huawei-emma-rx-light.yaml` - optional RX activity light hook.
 - `components/huawei_emma_tlv/` - Git-backed parser component.
+- `tools/analyze_huawei_csv.py` - dependency-free CSV replay and register-analysis tool.
 - `esp32.yaml` - deliberately minimal device example.
 - `extras/` - inactive Modbus polling/reference helpers retained from the
   original work; they are not loaded by the TLV package.
+
+Analyze a logger export and optionally retain the complete machine-readable
+result:
+
+```bash
+python tools/analyze_huawei_csv.py huawei-rs485-logger.csv \
+  --json huawei-rs485-analysis.json
+```
+
+The analyzer validates CRCs and `0x35` block alignment, prints the latest known
+battery/inverter values, and ranks three-value register candidates against
+inverter active power. It accepts both raw hexadecimal frame cells and the
+logger's `{summary=..., raw=...}` cell format.
 
 The package exposes discovered-tag text sensors for known device IDs 0, 2, and
 12, plus a shared-tag sensor. The inverter catalog has ten pages; the EMMA and
@@ -210,6 +224,8 @@ latest raw value, such as `7D5F=00000382`. Tags belonging to other device IDs ar
 on additional pages, for example `0x80: 7530=value, 7540=value`. A tag seen
 under multiple device IDs is logged once per device with its decoded sample,
 making possible cross-device meanings visible without flooding the log.
+EMMA entities are currently marked `internal` because recent captures have not
+contained sustained online EMMA traffic.
 Tags with established semantics are omitted from the per-device discovered
 catalogs so those pages stay focused on reverse-engineering unknown fields.
 Their decoded values remain available through entities and frame logs. `Unknown
@@ -222,17 +238,26 @@ than part of the model name. Tag `0x985B` is split into three 30-byte fields exp
 `Battery Pack 1 Model`, `Battery Pack 2 Model`, and `Battery Pack 3 Model`.
 Battery identity tags `0x9538`, `0x9559`, and `0x9583` publish `Battery Pack 1 SN`,
 `Battery Pack 2 SN`, and `Battery Pack 3 SN`; the shared firmware run is published as
-`Battery Firmware` when present. Battery temperature tags `0x9634` through `0x9639` are
-scaled as 0.1 °C values.
+`Battery Firmware` when present. Battery temperature registers `0x9634` through `0x9639`
+are scaled as 0.1 °C values.
+
+Function `0x35` items are decoded as bounded, contiguous register windows rather than
+as isolated exact tags. This allows a known field to be read when Huawei includes it
+inside a larger block while preventing reads across the advertised block boundary.
+The capture-backed battery entities include battery power, bus voltage/current, SOC,
+internal temperature, charged/discharged energy today, lifetime charged/discharged
+energy, rated capacity, and each pack's SOC, power, voltage, total energy, and
+highest/lowest temperature. Signed power and current retain the inverter's raw sign
+convention.
 Inverter identification tag `0x7530` publishes `Inverter Model`, `Inverter Serial Number`,
 and `Inverter Software Version`. Long current-data TLVs with other printable content are
-rendered as semicolon-separated ASCII runs in frame logs.
+rendered as semicolon-separated ASCII runs in frame logs. Typed reports accept inline
+byte lengths only for established identity/model tags, preventing printable payload
+bytes from being mistaken for nested TLV headers.
 Current-data TLV counts use the low seven bits of the count byte; the high bit
 is retained as a frame flag in decoder summaries.
 
-In the July 2026 capture used for this revision, device 2 had 16 tags and device
-12 had 52 tags, with no tag ID present in both sets. Known decoding is therefore
-device-scoped. In particular, meter tags `0x7729`, `0x7734`, and `0x9C52` are
-retained as voltage-like candidates in logs/discovery but do not overwrite the
-phase-voltage sensors; canonical meter phase voltage and frequency currently
-come from `0x7733`.
+Known decoding is device-scoped. In particular, meter tags `0x7729`, `0x7734`,
+and `0x9C52` are retained as voltage-like candidates in logs/discovery but do
+not overwrite the phase-voltage sensors; canonical meter phase voltage and
+frequency currently come from `0x7733`.
