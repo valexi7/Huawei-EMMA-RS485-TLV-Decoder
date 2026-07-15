@@ -220,6 +220,13 @@ Battery model tag `0x9640` exposes its leading null-terminated, zero-padded
 string as `Battery Pack Model`; its remaining bytes are crypto metadata rather
 than part of the model name. Tag `0x985B` is split into three 30-byte fields exposed as
 `Battery Pack 1 Model`, `Battery Pack 2 Model`, and `Battery Pack 3 Model`.
+Battery identity tags `0x9538`, `0x9559`, and `0x9583` publish `Battery Pack 1 SN`,
+`Battery Pack 2 SN`, and `Battery Pack 3 SN`; the shared firmware run is published as
+`Battery Firmware` when present. Battery temperature tags `0x9634` through `0x9639` are
+scaled as 0.1 °C values.
+Inverter identification tag `0x7530` publishes `Inverter Model`, `Inverter Serial Number`,
+and `Inverter Software Version`. Long current-data TLVs with other printable content are
+rendered as semicolon-separated ASCII runs in frame logs.
 Current-data TLV counts use the low seven bits of the count byte; the high bit
 is retained as a frame flag in decoder summaries.
 

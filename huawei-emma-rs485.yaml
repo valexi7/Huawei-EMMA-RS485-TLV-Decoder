@@ -261,9 +261,25 @@ text_sensor:
       return std::nullopt;
 
   - platform: template
+    id: inverter_model
+    name: "Inverter Model"
+    icon: mdi:solar-power-variant
+    entity_category: diagnostic
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
     id: inverter_serial_number
     name: "Inverter Serial Number"
     icon: mdi:barcode
+    entity_category: diagnostic
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_software_version
+    name: "Inverter Software Version"
+    icon: mdi:chip
     entity_category: diagnostic
     lambda: |-
       return std::nullopt;
@@ -336,6 +352,38 @@ text_sensor:
     id: battery_pack_3_model
     name: "Battery Pack 3 Model"
     icon: mdi:battery
+    entity_category: diagnostic
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: battery_pack_1_sn
+    name: "Battery Pack 1 SN"
+    icon: mdi:identifier
+    entity_category: diagnostic
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: battery_pack_2_sn
+    name: "Battery Pack 2 SN"
+    icon: mdi:identifier
+    entity_category: diagnostic
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: battery_pack_3_sn
+    name: "Battery Pack 3 SN"
+    icon: mdi:identifier
+    entity_category: diagnostic
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: battery_firmware
+    name: "Battery Firmware"
+    icon: mdi:chip
     entity_category: diagnostic
     lambda: |-
       return std::nullopt;
@@ -696,6 +744,72 @@ sensor:
     state_class: total_increasing
     unit_of_measurement: kWh
     accuracy_decimals: 2
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_battery_pack_1_highest_temperature
+    name: "Inverter Battery Pack 1 Highest Temperature"
+    icon: mdi:thermometer-high
+    device_class: temperature
+    state_class: measurement
+    unit_of_measurement: °C
+    accuracy_decimals: 1
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_battery_pack_1_lowest_temperature
+    name: "Inverter Battery Pack 1 Lowest Temperature"
+    icon: mdi:thermometer-low
+    device_class: temperature
+    state_class: measurement
+    unit_of_measurement: °C
+    accuracy_decimals: 1
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_battery_pack_2_highest_temperature
+    name: "Inverter Battery Pack 2 Highest Temperature"
+    icon: mdi:thermometer-high
+    device_class: temperature
+    state_class: measurement
+    unit_of_measurement: °C
+    accuracy_decimals: 1
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_battery_pack_2_lowest_temperature
+    name: "Inverter Battery Pack 2 Lowest Temperature"
+    icon: mdi:thermometer-low
+    device_class: temperature
+    state_class: measurement
+    unit_of_measurement: °C
+    accuracy_decimals: 1
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_battery_pack_3_highest_temperature
+    name: "Inverter Battery Pack 3 Highest Temperature"
+    icon: mdi:thermometer-high
+    device_class: temperature
+    state_class: measurement
+    unit_of_measurement: °C
+    accuracy_decimals: 1
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_battery_pack_3_lowest_temperature
+    name: "Inverter Battery Pack 3 Lowest Temperature"
+    icon: mdi:thermometer-low
+    device_class: temperature
+    state_class: measurement
+    unit_of_measurement: °C
+    accuracy_decimals: 1
     lambda: |-
       return std::nullopt;
 
