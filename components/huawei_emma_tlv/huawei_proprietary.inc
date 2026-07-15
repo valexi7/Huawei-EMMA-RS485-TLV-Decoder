@@ -51,7 +51,7 @@ static constexpr uint16_t HP_TAG_BATTERY_PACK_1_LOWEST_TEMP = 0x9635;   // ×0.1
 static constexpr uint16_t HP_TAG_BATTERY_PACK_2_HIGHEST_TEMP = 0x9636;  // ×0.1 °C
 static constexpr uint16_t HP_TAG_BATTERY_PACK_2_LOWEST_TEMP = 0x9637;   // ×0.1 °C
 static constexpr uint16_t HP_TAG_BATTERY_PACK_3_HIGHEST_TEMP = 0x9638;  // ×0.1 °C
-static constexpr uint16_t HP_TAG_BATTERY_PACK_4_LOWEST_TEMP = 0x9639;   // ×0.1 °C
+static constexpr uint16_t HP_TAG_BATTERY_PACK_3_LOWEST_TEMP = 0x9639;   // ×0.1 °C
 static constexpr size_t HP_BATTERY_MODULE_MODEL_FIELD_BYTES = 30;
 static constexpr size_t HP_BATTERY_PACK_COUNT = 3;
 static constexpr float HP_ENERGY_YIELD_SCALE = 0.01f;
@@ -890,6 +890,19 @@ static inline std::string hp_tlv_value_to_ascii_runs(const std::vector<uint8_t> 
   return out;
 }
 
+static inline bool hp_string_starts_with(const std::string &value, const char *prefix) {
+  const size_t prefix_len = strlen(prefix);
+  return value.size() >= prefix_len && value.compare(0, prefix_len, prefix) == 0;
+}
+
+static inline std::string hp_tlv_ascii_field(const std::vector<uint8_t> &bytes, size_t value_start, size_t val_size,
+                                            size_t field_offset, size_t field_len) {
+  if (field_offset >= val_size)
+    return std::string();
+  const size_t available = std::min(field_len, val_size - field_offset);
+  return hp_tlv_value_to_ascii(bytes, value_start + field_offset, available);
+}
+
 static inline void hp_try_publish_serial_number_value(uint8_t device_id, uint16_t tag,
                                                       const std::vector<uint8_t> &bytes, size_t pos,
                                                       size_t val_size) {
@@ -959,7 +972,7 @@ static inline bool hp_tag_has_established_semantics(uint8_t device_id, uint16_t 
     case HP_TAG_BATTERY_PACK_2_HIGHEST_TEMP:
     case HP_TAG_BATTERY_PACK_2_LOWEST_TEMP:
     case HP_TAG_BATTERY_PACK_3_HIGHEST_TEMP:
-    case HP_TAG_BATTERY_PACK_4_LOWEST_TEMP:
+    case HP_TAG_BATTERY_PACK_3_LOWEST_TEMP:
       return true;
     default:
       return false;
@@ -1014,6 +1027,12 @@ static inline void hp_try_publish_serial_number(uint8_t device_id, uint16_t tag,
   hp_try_publish_serial_number_value(device_id, tag, bytes, pos, val_size);
 }
 
+static inline std::string hp_inverter_identification_software(const std::vector<std::string> &runs) {
+  if (runs.size() < 3)
+    return std::string();
+  return runs.back();
+}
+
 static inline std::string hp_format_inverter_identification_tlv(const std::vector<uint8_t> &bytes, size_t value_start,
                                                                size_t val_size) {
   std::vector<std::string> runs;
@@ -1023,9 +1042,9 @@ static inline std::string hp_format_inverter_identification_tlv(const std::vecto
 
   const std::string &model = runs[0];
   const std::string &serial = runs[1];
-  const std::string &software = runs.back();
+  const std::string software = hp_inverter_identification_software(runs);
   char line[320];
-  if (runs.size() >= 3) {
+  if (!software.empty()) {
     snprintf(line, sizeof(line), "tag=0x%04X inverter_model=%s inverter_serial=%s inverter_software=%s",
              HP_TAG_INVERTER_IDENTIFICATION, model.c_str(), serial.c_str(), software.c_str());
   } else {
@@ -1048,8 +1067,9 @@ static inline void hp_try_publish_inverter_identification_value(uint8_t device_i
 
   hp_publish_optional_text_sensor("Inverter Model", runs[0]);
   hp_publish_optional_text_sensor("Inverter Serial Number", runs[1]);
-  if (runs.size() >= 3)
-    hp_publish_optional_text_sensor("Inverter Software Version", runs.back());
+  const std::string software = hp_inverter_identification_software(runs);
+  if (!software.empty())
+    hp_publish_optional_text_sensor("Inverter Software Version", software);
 }
 
 static inline bool hp_is_battery_pack_identity_tag(uint16_t tag) {
@@ -1070,20 +1090,59 @@ static inline const char *hp_battery_pack_serial_sensor_name(uint16_t tag) {
   }
 }
 
+static inline bool hp_battery_pack_identity_offsets(uint16_t tag, size_t *sn_offset, size_t *fw_offset) {
+  switch (tag) {
+    case HP_TAG_BATTERY_PACK_1_SN_FW:
+      *sn_offset = 0;
+      *fw_offset = 20;
+      return true;
+    case HP_TAG_BATTERY_PACK_2_SN_FW:
+      *sn_offset = 20;
+      *fw_offset = 40;
+      return true;
+    case HP_TAG_BATTERY_PACK_3_SN_FW:
+      *sn_offset = 20;
+      *fw_offset = 40;
+      return true;
+    default:
+      return false;
+  }
+}
+
+static inline std::string hp_battery_pack_identity_serial(const std::vector<uint8_t> &bytes, size_t value_start,
+                                                         size_t val_size, uint16_t tag) {
+  size_t sn_offset = 0;
+  size_t fw_offset = 0;
+  if (!hp_battery_pack_identity_offsets(tag, &sn_offset, &fw_offset))
+    return std::string();
+  const std::string serial = hp_tlv_ascii_field(bytes, value_start, val_size, sn_offset, 12);
+  return hp_string_starts_with(serial, "EX") ? serial : std::string();
+}
+
+static inline std::string hp_battery_pack_identity_firmware(const std::vector<uint8_t> &bytes, size_t value_start,
+                                                           size_t val_size, uint16_t tag) {
+  size_t sn_offset = 0;
+  size_t fw_offset = 0;
+  if (!hp_battery_pack_identity_offsets(tag, &sn_offset, &fw_offset))
+    return std::string();
+  const std::string firmware = hp_tlv_ascii_field(bytes, value_start, val_size, fw_offset, 17);
+  return hp_string_starts_with(firmware, "V") ? firmware : std::string();
+}
+
 static inline std::string hp_format_battery_pack_identity_tlv(uint16_t tag, const std::vector<uint8_t> &bytes,
                                                              size_t value_start, size_t val_size) {
-  std::vector<std::string> runs;
-  hp_tlv_ascii_runs(bytes, value_start, val_size, runs);
-  if (runs.empty())
+  const std::string serial = hp_battery_pack_identity_serial(bytes, value_start, val_size, tag);
+  if (serial.empty())
     return std::string();
 
+  const std::string firmware = hp_battery_pack_identity_firmware(bytes, value_start, val_size, tag);
   char line[320];
   const char *sn_name = hp_battery_pack_serial_sensor_name(tag);
-  if (runs.size() >= 2) {
-    snprintf(line, sizeof(line), "tag=0x%04X %s=%s battery_firmware=%s", tag, sn_name, runs[0].c_str(),
-             runs[1].c_str());
+  if (!firmware.empty()) {
+    snprintf(line, sizeof(line), "tag=0x%04X %s=%s battery_firmware=%s", tag, sn_name, serial.c_str(),
+             firmware.c_str());
   } else {
-    snprintf(line, sizeof(line), "tag=0x%04X %s=%s", tag, sn_name, runs[0].c_str());
+    snprintf(line, sizeof(line), "tag=0x%04X %s=%s", tag, sn_name, serial.c_str());
   }
   return line;
 }
@@ -1094,22 +1153,22 @@ static inline void hp_try_publish_battery_pack_identity_values(uint8_t device_id
   if (device_id != HP_DEV_INVERTER || !hp_is_battery_pack_identity_tag(tag) || pos + 3 + val_size > bytes.size())
     return;
 
-  std::vector<std::string> runs;
-  hp_tlv_ascii_runs(bytes, pos + 3, val_size, runs);
-  if (runs.empty())
+  const std::string serial = hp_battery_pack_identity_serial(bytes, pos + 3, val_size, tag);
+  if (serial.empty())
     return;
 
   const char *sn_name = hp_battery_pack_serial_sensor_name(tag);
   if (sn_name != nullptr)
-    hp_publish_optional_text_sensor(sn_name, runs[0]);
-  if (runs.size() >= 2)
-    hp_publish_optional_text_sensor("Battery Firmware", runs[1]);
+    hp_publish_optional_text_sensor(sn_name, serial);
+  const std::string firmware = hp_battery_pack_identity_firmware(bytes, pos + 3, val_size, tag);
+  if (!firmware.empty())
+    hp_publish_optional_text_sensor("Battery Firmware", firmware);
 }
 
 static inline bool hp_is_battery_pack_temperature_tag(uint16_t tag) {
   return tag == HP_TAG_BATTERY_PACK_1_HIGHEST_TEMP || tag == HP_TAG_BATTERY_PACK_1_LOWEST_TEMP ||
          tag == HP_TAG_BATTERY_PACK_2_HIGHEST_TEMP || tag == HP_TAG_BATTERY_PACK_2_LOWEST_TEMP ||
-         tag == HP_TAG_BATTERY_PACK_3_HIGHEST_TEMP || tag == HP_TAG_BATTERY_PACK_4_LOWEST_TEMP;
+         tag == HP_TAG_BATTERY_PACK_3_HIGHEST_TEMP || tag == HP_TAG_BATTERY_PACK_3_LOWEST_TEMP;
 }
 
 static inline const char *hp_battery_pack_temperature_name(uint16_t tag) {
@@ -1124,8 +1183,8 @@ static inline const char *hp_battery_pack_temperature_name(uint16_t tag) {
       return "battery_pack_2_lowest_temp";
     case HP_TAG_BATTERY_PACK_3_HIGHEST_TEMP:
       return "battery_pack_3_highest_temp";
-    case HP_TAG_BATTERY_PACK_4_LOWEST_TEMP:
-      return "battery_pack_4_lowest_temp";
+    case HP_TAG_BATTERY_PACK_3_LOWEST_TEMP:
+      return "battery_pack_3_lowest_temp";
     default:
       return nullptr;
   }
@@ -1530,8 +1589,8 @@ static inline void hp_try_publish_phase_from_typed_tlv(uint8_t device_id, uint16
       case HP_TAG_BATTERY_PACK_3_HIGHEST_TEMP:
         id(inverter_battery_pack_3_highest_temperature).publish_state(temp_c);
         break;
-      case HP_TAG_BATTERY_PACK_4_LOWEST_TEMP:
-        id(inverter_battery_pack_4_lowest_temperature).publish_state(temp_c);
+      case HP_TAG_BATTERY_PACK_3_LOWEST_TEMP:
+        id(inverter_battery_pack_3_lowest_temperature).publish_state(temp_c);
         break;
       default:
         break;

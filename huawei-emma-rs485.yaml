@@ -803,8 +803,8 @@ sensor:
       return std::nullopt;
 
   - platform: template
-    id: inverter_battery_pack_4_lowest_temperature
-    name: "Inverter Battery Pack 4 Lowest Temperature"
+    id: inverter_battery_pack_3_lowest_temperature
+    name: "Inverter Battery Pack 3 Lowest Temperature"
     icon: mdi:thermometer-low
     device_class: temperature
     state_class: measurement
