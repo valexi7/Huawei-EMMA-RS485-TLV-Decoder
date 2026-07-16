@@ -21,6 +21,10 @@ bytes in a bounded accumulator and waits for the remainder before checking the
 CRC or parsing TLVs. A callback boundary is therefore no longer reported as a
 truncated FC41 payload.
 
+<img width="340" height="600" alt="image" src="https://github.com/user-attachments/assets/51cc1595-2606-4c61-9bd0-3767fc68c8fc" /><img width="340" height="600" alt="image" src="https://github.com/user-attachments/assets/2e5d098b-9de5-4e64-bda9-798912a8eca6" />
+
+
+
 ## Minimal ESP32 configuration
 
 Copy [`esp32.yaml`](esp32.yaml) into your ESPHome configuration directory and
@@ -162,12 +166,16 @@ can then be consumed by a Home Assistant automation or stored for later use.
 Do not connect an ESP GPIO directly to RS485 A/B. Use a 3.3 V-compatible,
 preferably isolated RS485 receiver/transceiver:
 
+<img width="900" height="660" alt="image" src="https://github.com/user-attachments/assets/d864c259-fe10-4b40-bb69-8895fb6cde6c" />
+
+
 1. Connect the bus A/B pair to the receiver A/B terminals.
 2. Connect the receiver's RO output to `${huawei_uart_rx_pin}`.
 3. Hold the receiver/transceiver in receive-only mode. The supplied base
    package never transmits and does not configure board-specific DE, RE,
    power-enable, or LED pins.
 4. Add any enable pins required by your chosen board to your local YAML.
+5. From EMMA terminal block you can get +12 V
 
 The defaults are 9600 baud, 8 data bits, no parity, and one stop bit. Change
 these substitutions in the local file when necessary:
