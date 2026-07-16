@@ -26,7 +26,7 @@ from typing import Iterable
 
 
 CURRENT_DATA_SUBFUNCTION = 0x35
-PHASE_CANDIDATES = {
+AMBIGUOUS_THREE_VALUE_CANDIDATES = {
     "0x90F3 i32[3]": (0x90F3, 6, 4),
     "0x90FB i16[3]": (0x90FB, 3, 2),
     "0x910C i32[3]": (0x910C, 6, 4),
@@ -218,16 +218,19 @@ def analyze(path: Path, top: int = 20) -> dict:
 
     with path.open("r", encoding="utf-8-sig", newline="") as source:
         reader = csv.DictReader(source)
-        if not reader.fieldnames or "timestamp" not in reader.fieldnames or "rs485Frame" not in reader.fieldnames:
+        columns = {name.casefold(): name for name in (reader.fieldnames or [])}
+        timestamp_column = columns.get("timestamp")
+        frame_column = columns.get("rs485frame")
+        if timestamp_column is None or frame_column is None:
             raise ValueError(f"Expected timestamp and rs485Frame columns, got {reader.fieldnames}")
         for row in reader:
             stats["rows"] += 1
-            timestamp = row["timestamp"]
+            timestamp = row[timestamp_column]
             first_timestamp = first_timestamp or timestamp
             last_timestamp = timestamp
             try:
                 second = timestamp_second(timestamp)
-                frame = extract_raw_frame(row["rs485Frame"])
+                frame = extract_raw_frame(row[frame_column])
                 raw_count, flagged, blocks = parse_current_data_frame(frame)
             except (TypeError, ValueError):
                 stats["malformed"] += 1
@@ -282,7 +285,7 @@ def analyze(path: Path, top: int = 20) -> dict:
     scores.sort(key=lambda item: (-(abs(item["correlation"] or 0)), item["median_abs_error_w"]))
 
     code_candidates = {}
-    for label, (register, _, width) in PHASE_CANDIDATES.items():
+    for label, (register, _, width) in AMBIGUOUS_THREE_VALUE_CANDIDATES.items():
         source = candidates_32 if width == 4 else candidates_16
         code_candidates[label] = candidate_score(source.get(register, []), active_series)
 
@@ -292,7 +295,7 @@ def analyze(path: Path, top: int = 20) -> dict:
         "last_timestamp": last_timestamp,
         "frame_stats": stats,
         "fields": {name: summarize(fields[name]) for name in KNOWN_FIELDS},
-        "current_phase_power_candidates": code_candidates,
+        "ambiguous_three_value_candidates": code_candidates,
         "ranked_candidates": scores[:top],
         "block_starts": {
             f"0x{register:04X}": {
@@ -318,8 +321,8 @@ def print_report(result: dict) -> None:
             continue
         last = summary["last"]
         print(f"  {name:28s} {last['value']:10.3f} {last['unit']:<5s}  {last['timestamp']} ({last['block']})")
-    print("\nCurrent phase-power candidates versus active power:")
-    for label, score in result["current_phase_power_candidates"].items():
+    print("\nAmbiguous three-value tags versus active power:")
+    for label, score in result["ambiguous_three_value_candidates"].items():
         if score is None:
             print(f"  {label:18s} insufficient paired observations")
             continue

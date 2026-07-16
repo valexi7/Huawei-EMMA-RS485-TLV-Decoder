@@ -18,18 +18,37 @@ static constexpr uint16_t HP_TAG_GRID_FREQ_PHASE_V = 0x7733;  // count=4: freq(/
 static constexpr uint16_t HP_TAG_METER_PHASE_VOLTAGE = 0x7734;  // meter-only phase voltages A/B/C (×0.1 V)
 static constexpr uint16_t HP_TAG_PHASE_VOLTAGE_TLV = 0x7EC5;
 static constexpr uint16_t HP_TAG_PHASE_VOLTAGE_U32 = 0x90ED;
-static constexpr uint16_t HP_TAG_PHASE_CURRENT = 0x7D48;    // 0x35 words=6, A/B/C amps (×0.001)
-static constexpr uint16_t HP_TAG_PHASE_ACTIVE_POWER = 0x910C;  // 0x35 words=6, Pa/Pb/Pc (W)
+static constexpr uint16_t HP_TAG_PHASE_CURRENT = 0x7D48;    // 0x35 register window, A/B/C amps (×0.001)
 static constexpr uint16_t HP_TAG_METER_PHASE_VOLTAGE_ALT = 0x7729;  // meter-only candidate; count varies
 static constexpr uint16_t HP_TAG_LINE_VOLTAGE_U32 = 0x9106;    // u32 line-voltage payload (×0.1 V)
-static constexpr uint16_t HP_TAG_PHASE_ACTIVE_POWER_I16 = 0x90FB;  // inverter 0x35 words=3 i16 Pa/Pb/Pc (W)
-static constexpr uint16_t HP_TAG_PHASE_ACTIVE_POWER_ALT = 0x90F3;  // inverter 0x35 words=6 i32 Pa/Pb/Pc (W)
 static constexpr uint16_t HP_TAG_ACTIVE_POWER = 0x7D5F;     // 0x35 words=2 i32, active power W
 static constexpr uint16_t HP_TAG_REACTIVE_POWER = 0x7D66;   // 0x35 words=2, var (signed)
 static constexpr uint16_t HP_TAG_INVERTER_CANDIDATE_93C5 = 0x93C5;  // observed i32; semantics unknown
 static constexpr uint16_t HP_TAG_TOTAL_YIELD = 0x7D6A;      // 0x35 words=2 u32, lifetime kWh (×0.01)
-static constexpr uint16_t HP_TAG_DAILY_ENERGY = 0x7D80;     // 0x35 words=2 u32, daily kWh (×0.01)
-static constexpr uint16_t HP_TAG_INVERTER_TIMES = 0x7D01;   // 0x35 words=6 u32 startup/shutdown/unknown
+static constexpr uint16_t HP_TAG_DAILY_ENERGY = 0x7D72;     // u32 inside a bounded 0x35 register window (×0.01)
+static constexpr uint16_t HP_REG_PV1_VOLTAGE = 0x7D10;
+static constexpr uint16_t HP_REG_PV1_CURRENT = 0x7D11;
+static constexpr uint16_t HP_REG_INPUT_POWER = 0x7D40;
+static constexpr uint16_t HP_REG_LINE_AB_VOLTAGE = 0x7D42;
+static constexpr uint16_t HP_REG_LINE_BC_VOLTAGE = 0x7D43;
+static constexpr uint16_t HP_REG_LINE_CA_VOLTAGE = 0x7D44;
+static constexpr uint16_t HP_REG_PHASE_A_VOLTAGE = 0x7D45;
+static constexpr uint16_t HP_REG_PHASE_B_VOLTAGE = 0x7D46;
+static constexpr uint16_t HP_REG_PHASE_C_VOLTAGE = 0x7D47;
+static constexpr uint16_t HP_REG_PHASE_A_CURRENT = 0x7D48;
+static constexpr uint16_t HP_REG_PHASE_B_CURRENT = 0x7D4A;
+static constexpr uint16_t HP_REG_PHASE_C_CURRENT = 0x7D4C;
+static constexpr uint16_t HP_REG_ACTIVE_POWER_STANDARD = 0x7D50;
+static constexpr uint16_t HP_REG_REACTIVE_POWER_STANDARD = 0x7D52;
+static constexpr uint16_t HP_REG_POWER_FACTOR = 0x7D54;
+static constexpr uint16_t HP_REG_GRID_FREQUENCY = 0x7D55;
+static constexpr uint16_t HP_REG_INTERNAL_TEMPERATURE = 0x7D57;
+static constexpr uint16_t HP_REG_INSULATION_RESISTANCE = 0x7D58;
+static constexpr uint16_t HP_REG_INVERTER_STATUS = 0x7D59;
+static constexpr uint16_t HP_REG_STARTUP_TIME = 0x7D5B;
+static constexpr uint16_t HP_REG_SHUTDOWN_TIME = 0x7D5D;
+static constexpr uint16_t HP_TAG_INVERTER_CAPABILITIES = 0x7574;
+static constexpr uint16_t HP_REG_RATED_POWER = 0x7579;
 static constexpr uint16_t HP_TAG_BATTERY_CHARGED_TODAY = 0x9097;   // u32, kWh (x0.01)
 static constexpr uint16_t HP_TAG_BATTERY_DISCHARGED_TODAY = 0x9099;  // u32, kWh (x0.01)
 static constexpr uint16_t HP_TAG_BATTERY_DISCHARGED_TODAY_LEGACY = 0x9398;
@@ -99,10 +118,6 @@ static constexpr uint8_t HP_FC41_SUBFN_CURRENT_DATA = 0x35;
 static constexpr uint8_t HP_FC41_SUBFN_REPORT = 0x89;
 static constexpr uint8_t HP_FC41_EXCEPTION_FUNCTION = 0xC1;
 
-// FC41 encodes startup/shutdown as seconds before a fixed local-time epoch (matches Modbus 32091/32093).
-static constexpr uint32_t HP_FC41_TIME_UNIX_OFFSET = 1756181774UL;
-static constexpr uint32_t HP_FC41_TIME_RAW_MAX = 600000000UL;
-
 // Known FC41 device roles (extend when more IDs are identified).
 static constexpr uint8_t HP_DEV_EMMA = 0;
 static constexpr uint8_t HP_DEV_METER = 2;
@@ -160,10 +175,6 @@ static inline uint32_t hp_u32be(const std::vector<uint8_t> &bytes, size_t pos);
 static inline void hp_publish_optional_text_sensor(const char *entity_name, const std::string &value);
 static inline bool hp_tag_has_established_semantics(uint8_t device_id, uint16_t tag);
 
-static inline bool hp_fc41_time_raw_looks_valid(uint32_t raw) {
-  return raw > 0 && raw < HP_FC41_TIME_RAW_MAX;
-}
-
 static inline bool hp_unix_time_looks_valid(uint32_t unix_sec) {
   // 2020-01-01 .. 2040-01-01 UTC
   return unix_sec >= 1577836800UL && unix_sec < 2208988800UL;
@@ -186,24 +197,25 @@ static inline void hp_format_unix_local_time(uint32_t unix_sec, char *out, size_
   snprintf(out, out_size, "%s", time_buf);
 }
 
-static inline void hp_format_fc41_local_time(uint32_t raw, char *out, size_t out_size) {
-  if (raw == 0) {
-    snprintf(out, out_size, "unset");
+static inline void hp_format_inverter_event_time(uint32_t unix_sec, char *out, size_t out_size) {
+  if (unix_sec == 0 || unix_sec == UINT32_MAX) {
+    snprintf(out, out_size, "N/A");
     return;
   }
-  if (!hp_fc41_time_raw_looks_valid(raw)) {
-    snprintf(out, out_size, "raw=%lu (0x%08lX)", static_cast<unsigned long>(raw), static_cast<unsigned long>(raw));
+  if (!hp_unix_time_looks_valid(unix_sec)) {
+    snprintf(out, out_size, "raw=%lu (0x%08lX)", static_cast<unsigned long>(unix_sec),
+             static_cast<unsigned long>(unix_sec));
     return;
   }
-  const time_t t = static_cast<time_t>(static_cast<uint64_t>(raw) + HP_FC41_TIME_UNIX_OFFSET);
+  const time_t t = static_cast<time_t>(unix_sec);
   struct tm tm_buf;
-  if (localtime_r(&t, &tm_buf) == nullptr) {
-    snprintf(out, out_size, "raw=%lu", static_cast<unsigned long>(raw));
+  if (gmtime_r(&t, &tm_buf) == nullptr) {
+    snprintf(out, out_size, "raw=%lu", static_cast<unsigned long>(unix_sec));
     return;
   }
   char time_buf[32];
   strftime(time_buf, sizeof(time_buf), "%Y-%m-%d %H:%M:%S", &tm_buf);
-  snprintf(out, out_size, "%s", time_buf);
+  snprintf(out, out_size, "%s UTC", time_buf);
 }
 
 static inline void hp_publish_total_yield(uint8_t device_id, uint32_t raw_wh) {
@@ -238,19 +250,6 @@ static inline void hp_try_publish_bus_clock_value(uint8_t device_id, uint16_t ta
     default:
       break;
   }
-}
-
-static inline void hp_publish_inverter_times(uint8_t device_id, uint32_t startup, uint32_t shutdown, uint32_t field3) {
-  if (device_id != HP_DEV_INVERTER)
-    return;
-
-  char buf[48];
-  hp_format_fc41_local_time(startup, buf, sizeof(buf));
-  id(inverter_startup_time).publish_state(buf);
-  hp_format_fc41_local_time(shutdown, buf, sizeof(buf));
-  id(inverter_shutdown_time).publish_state(buf);
-
-  (void) field3;  // Still rendered in the TLV log; semantics are not established.
 }
 
 static inline void hp_note_device_id(uint8_t device_id) {
@@ -844,14 +843,6 @@ static inline void hp_publish_phase_current_sensors(uint8_t device_id, const int
   id(inverter_phase_c_current).publish_state(static_cast<float>(amps_raw[2]) * HP_PHASE_CURRENT_SCALE);
 }
 
-static inline void hp_publish_phase_active_power_sensors(uint8_t device_id, const int32_t *watts) {
-  if (device_id != HP_DEV_INVERTER)
-    return;
-  id(inverter_phase_a_power).publish_state(static_cast<float>(watts[0]));
-  id(inverter_phase_b_power).publish_state(static_cast<float>(watts[1]));
-  id(inverter_phase_c_power).publish_state(static_cast<float>(watts[2]));
-}
-
 static inline void hp_publish_grid_freq_and_phase_v(uint8_t device_id, const uint16_t *values) {
   if (device_id != HP_DEV_METER)
     return;
@@ -1031,19 +1022,37 @@ static inline bool hp_tag_has_established_semantics(uint8_t device_id, uint16_t 
     return false;
 
   switch (tag) {
+    case HP_TAG_INVERTER_CAPABILITIES:
+    case HP_REG_RATED_POWER:
+    case HP_REG_PV1_VOLTAGE:
+    case HP_REG_PV1_CURRENT:
+    case HP_REG_INPUT_POWER:
+    case HP_REG_LINE_AB_VOLTAGE:
+    case HP_REG_LINE_BC_VOLTAGE:
+    case HP_REG_LINE_CA_VOLTAGE:
+    case HP_REG_PHASE_A_VOLTAGE:
+    case HP_REG_PHASE_B_VOLTAGE:
+    case HP_REG_PHASE_C_VOLTAGE:
+    case HP_REG_PHASE_B_CURRENT:
+    case HP_REG_PHASE_C_CURRENT:
+    case HP_REG_ACTIVE_POWER_STANDARD:
+    case HP_REG_REACTIVE_POWER_STANDARD:
+    case HP_REG_POWER_FACTOR:
+    case HP_REG_GRID_FREQUENCY:
+    case HP_REG_INTERNAL_TEMPERATURE:
+    case HP_REG_INSULATION_RESISTANCE:
+    case HP_REG_INVERTER_STATUS:
+    case HP_REG_STARTUP_TIME:
+    case HP_REG_SHUTDOWN_TIME:
     case HP_TAG_LINE_VOLTAGE:
     case HP_TAG_PHASE_VOLTAGE_TLV:
     case HP_TAG_PHASE_VOLTAGE_U32:
     case HP_TAG_PHASE_CURRENT:
-    case HP_TAG_PHASE_ACTIVE_POWER:
     case HP_TAG_LINE_VOLTAGE_U32:
-    case HP_TAG_PHASE_ACTIVE_POWER_I16:
-    case HP_TAG_PHASE_ACTIVE_POWER_ALT:
     case HP_TAG_ACTIVE_POWER:
     case HP_TAG_REACTIVE_POWER:
     case HP_TAG_TOTAL_YIELD:
     case HP_TAG_DAILY_ENERGY:
-    case HP_TAG_INVERTER_TIMES:
     case HP_TAG_BATTERY_CHARGED_TODAY:
     case HP_TAG_BATTERY_DISCHARGED_TODAY:
     case HP_TAG_BATTERY_DISCHARGED_TODAY_LEGACY:
@@ -1328,6 +1337,241 @@ static inline void hp_append_current_field(std::string &summary, const char *fie
   summary += field;
 }
 
+static inline const char *hp_inverter_status_name(uint16_t status) {
+  switch (status) {
+    case 0x0000: return "Standby: initializing";
+    case 0x0001: return "Standby: detecting insulation resistance";
+    case 0x0002: return "Standby: detecting irradiation";
+    case 0x0003: return "Standby: grid detecting";
+    case 0x0100: return "Starting";
+    case 0x0200: return "Grid connected";
+    case 0x0201: return "Grid connected: power limited";
+    case 0x0202: return "Grid connected: self-derating";
+    case 0x0203: return "Off-grid: running";
+    case 0x0300: return "Shutdown: fault";
+    case 0x0301: return "Shutdown: command";
+    case 0x0302: return "Shutdown: OVGR";
+    case 0x0303: return "Shutdown: communication disconnected";
+    case 0x0304: return "Shutdown: power limited";
+    case 0x0305: return "Shutdown: manual startup required";
+    case 0x0306: return "Shutdown: DC switches disconnected";
+    case 0x0307: return "Shutdown: rapid cutoff";
+    case 0x0308: return "Shutdown: input underpowered";
+    case 0x030C: return "Shutdown: ESS end-of-discharge";
+    case 0x0401: return "Grid scheduling: cosphi-P curve";
+    case 0x0402: return "Grid scheduling: Q-U curve";
+    case 0x0403: return "Grid scheduling: PF-U curve";
+    case 0x0404: return "Grid scheduling: dry contact";
+    case 0x0405: return "Grid scheduling: Q-P curve";
+    case 0x0500: return "Spot-check ready";
+    case 0x0501: return "Spot-checking";
+    case 0x0600: return "Inspecting";
+    case 0x0700: return "AFCI self check";
+    case 0x0800: return "I-V scanning";
+    case 0x0900: return "DC input detection";
+    case 0x0A00: return "Running: off-grid charging";
+    case 0xA000: return "Standby: no irradiation";
+    default: return nullptr;
+  }
+}
+
+static inline std::string hp_publish_current_inverter_registers(uint8_t device_id,
+                                                                const std::vector<uint8_t> &bytes,
+                                                                size_t value_start, size_t val_size,
+                                                                uint16_t block_start, uint8_t word_count) {
+  std::string summary;
+  if (device_id != HP_DEV_INVERTER)
+    return summary;
+
+  char field[96];
+  uint16_t u16 = 0;
+  int16_t i16 = 0;
+  uint32_t u32 = 0;
+  int32_t i32 = 0;
+
+  if (hp_current_block_u16(bytes, value_start, val_size, block_start, word_count, HP_REG_PV1_VOLTAGE, &u16)) {
+    const float value = static_cast<float>(u16) * 0.1f;
+    id(inverter_pv1_voltage).publish_state(value);
+    snprintf(field, sizeof(field), "pv1_voltage=%.1fV", value);
+    hp_append_current_field(summary, field);
+  }
+  if (hp_current_block_u16(bytes, value_start, val_size, block_start, word_count, HP_REG_PV1_CURRENT, &u16)) {
+    const float value = static_cast<float>(u16) * 0.01f;
+    id(inverter_pv1_current).publish_state(value);
+    snprintf(field, sizeof(field), "pv1_current=%.2fA", value);
+    hp_append_current_field(summary, field);
+  }
+  if (hp_current_block_i32(bytes, value_start, val_size, block_start, word_count, HP_REG_INPUT_POWER, &i32)) {
+    id(inverter_input_power).publish_state(static_cast<float>(i32));
+    snprintf(field, sizeof(field), "input_P=%ldW", static_cast<long>(i32));
+    hp_append_current_field(summary, field);
+  }
+
+  if (hp_current_block_u16(bytes, value_start, val_size, block_start, word_count,
+                           HP_REG_LINE_AB_VOLTAGE, &u16)) {
+    const float value = static_cast<float>(u16) * HP_LINE_VOLTAGE_SCALE;
+    id(inverter_line_ab_voltage).publish_state(value);
+    snprintf(field, sizeof(field), "line_AB=%.1fV", value);
+    hp_append_current_field(summary, field);
+  }
+  if (hp_current_block_u16(bytes, value_start, val_size, block_start, word_count,
+                           HP_REG_LINE_BC_VOLTAGE, &u16)) {
+    const float value = static_cast<float>(u16) * HP_LINE_VOLTAGE_SCALE;
+    id(inverter_line_bc_voltage).publish_state(value);
+    snprintf(field, sizeof(field), "line_BC=%.1fV", value);
+    hp_append_current_field(summary, field);
+  }
+  if (hp_current_block_u16(bytes, value_start, val_size, block_start, word_count,
+                           HP_REG_LINE_CA_VOLTAGE, &u16)) {
+    const float value = static_cast<float>(u16) * HP_LINE_VOLTAGE_SCALE;
+    id(inverter_line_ca_voltage).publish_state(value);
+    snprintf(field, sizeof(field), "line_CA=%.1fV", value);
+    hp_append_current_field(summary, field);
+  }
+  if (hp_current_block_u16(bytes, value_start, val_size, block_start, word_count,
+                           HP_REG_PHASE_A_VOLTAGE, &u16)) {
+    const float value = static_cast<float>(u16) * HP_PHASE_VOLTAGE_SCALE;
+    id(inverter_phase_a_voltage).publish_state(value);
+    snprintf(field, sizeof(field), "phase_A_voltage=%.1fV", value);
+    hp_append_current_field(summary, field);
+  }
+  if (hp_current_block_u16(bytes, value_start, val_size, block_start, word_count,
+                           HP_REG_PHASE_B_VOLTAGE, &u16)) {
+    const float value = static_cast<float>(u16) * HP_PHASE_VOLTAGE_SCALE;
+    id(inverter_phase_b_voltage).publish_state(value);
+    snprintf(field, sizeof(field), "phase_B_voltage=%.1fV", value);
+    hp_append_current_field(summary, field);
+  }
+  if (hp_current_block_u16(bytes, value_start, val_size, block_start, word_count,
+                           HP_REG_PHASE_C_VOLTAGE, &u16)) {
+    const float value = static_cast<float>(u16) * HP_PHASE_VOLTAGE_SCALE;
+    id(inverter_phase_c_voltage).publish_state(value);
+    snprintf(field, sizeof(field), "phase_C_voltage=%.1fV", value);
+    hp_append_current_field(summary, field);
+  }
+
+  if (hp_current_block_i32(bytes, value_start, val_size, block_start, word_count,
+                           HP_REG_PHASE_A_CURRENT, &i32)) {
+    const float value = static_cast<float>(i32) * HP_PHASE_CURRENT_SCALE;
+    id(inverter_phase_a_current).publish_state(value);
+    snprintf(field, sizeof(field), "phase_A_current=%.3fA", value);
+    hp_append_current_field(summary, field);
+  }
+  if (hp_current_block_i32(bytes, value_start, val_size, block_start, word_count,
+                           HP_REG_PHASE_B_CURRENT, &i32)) {
+    const float value = static_cast<float>(i32) * HP_PHASE_CURRENT_SCALE;
+    id(inverter_phase_b_current).publish_state(value);
+    snprintf(field, sizeof(field), "phase_B_current=%.3fA", value);
+    hp_append_current_field(summary, field);
+  }
+  if (hp_current_block_i32(bytes, value_start, val_size, block_start, word_count,
+                           HP_REG_PHASE_C_CURRENT, &i32)) {
+    const float value = static_cast<float>(i32) * HP_PHASE_CURRENT_SCALE;
+    id(inverter_phase_c_current).publish_state(value);
+    snprintf(field, sizeof(field), "phase_C_current=%.3fA", value);
+    hp_append_current_field(summary, field);
+  }
+
+  if (hp_current_block_i32(bytes, value_start, val_size, block_start, word_count,
+                           HP_REG_ACTIVE_POWER_STANDARD, &i32)) {
+    id(inverter_active_power).publish_state(static_cast<float>(i32));
+    snprintf(field, sizeof(field), "active_P=%ldW", static_cast<long>(i32));
+    hp_append_current_field(summary, field);
+  }
+  if (hp_current_block_i32(bytes, value_start, val_size, block_start, word_count,
+                           HP_REG_REACTIVE_POWER_STANDARD, &i32)) {
+    id(inverter_reactive_power).publish_state(static_cast<float>(i32));
+    snprintf(field, sizeof(field), "reactive_Q=%ldvar", static_cast<long>(i32));
+    hp_append_current_field(summary, field);
+  }
+  if (hp_current_block_i16(bytes, value_start, val_size, block_start, word_count, HP_REG_POWER_FACTOR, &i16)) {
+    const float value = static_cast<float>(i16) * 0.001f;
+    id(inverter_power_factor).publish_state(value);
+    snprintf(field, sizeof(field), "power_factor=%.3f", value);
+    hp_append_current_field(summary, field);
+  }
+  if (hp_current_block_u16(bytes, value_start, val_size, block_start, word_count,
+                           HP_REG_GRID_FREQUENCY, &u16)) {
+    const float value = static_cast<float>(u16) * HP_GRID_FREQUENCY_SCALE;
+    id(inverter_grid_frequency).publish_state(value);
+    snprintf(field, sizeof(field), "grid_frequency=%.2fHz", value);
+    hp_append_current_field(summary, field);
+  }
+  if (hp_current_block_i16(bytes, value_start, val_size, block_start, word_count,
+                           HP_REG_INTERNAL_TEMPERATURE, &i16)) {
+    const float value = static_cast<float>(i16) * HP_TEMPERATURE_SCALE;
+    id(inverter_internal_temperature).publish_state(value);
+    snprintf(field, sizeof(field), "internal_temperature=%.1fC", value);
+    hp_append_current_field(summary, field);
+  }
+  if (hp_current_block_u16(bytes, value_start, val_size, block_start, word_count,
+                           HP_REG_INSULATION_RESISTANCE, &u16)) {
+    const float value = static_cast<float>(u16) * 0.001f;
+    id(inverter_insulation_resistance).publish_state(value);
+    snprintf(field, sizeof(field), "insulation=%.3fMOhm", value);
+    hp_append_current_field(summary, field);
+  }
+  if (hp_current_block_u16(bytes, value_start, val_size, block_start, word_count,
+                           HP_REG_INVERTER_STATUS, &u16)) {
+    char status[80];
+    const char *known_status = hp_inverter_status_name(u16);
+    if (known_status != nullptr) {
+      snprintf(status, sizeof(status), "%s", known_status);
+    } else {
+      snprintf(status, sizeof(status), "raw=0x%04X (%u)", u16, u16);
+    }
+    id(inverter_status).publish_state(status);
+    snprintf(field, sizeof(field), "status=%s", status);
+    hp_append_current_field(summary, field);
+  }
+
+  if (hp_current_block_u32(bytes, value_start, val_size, block_start, word_count, HP_REG_STARTUP_TIME, &u32)) {
+    char timestamp[48];
+    hp_format_inverter_event_time(u32, timestamp, sizeof(timestamp));
+    id(inverter_startup_time).publish_state(timestamp);
+    snprintf(field, sizeof(field), "startup=%s", timestamp);
+    hp_append_current_field(summary, field);
+  }
+  if (hp_current_block_u32(bytes, value_start, val_size, block_start, word_count, HP_REG_SHUTDOWN_TIME, &u32)) {
+    char timestamp[48];
+    hp_format_inverter_event_time(u32, timestamp, sizeof(timestamp));
+    id(inverter_shutdown_time).publish_state(timestamp);
+    snprintf(field, sizeof(field), "shutdown=%s", timestamp);
+    hp_append_current_field(summary, field);
+  }
+  if (hp_current_block_u32(bytes, value_start, val_size, block_start, word_count, HP_TAG_TOTAL_YIELD, &u32)) {
+    const float value = static_cast<float>(u32) * HP_ENERGY_YIELD_SCALE;
+    id(inverter_total_yield).publish_state(value);
+    snprintf(field, sizeof(field), "total_yield=%.2fkWh", value);
+    hp_append_current_field(summary, field);
+  }
+  if (hp_current_block_u32(bytes, value_start, val_size, block_start, word_count, HP_TAG_DAILY_ENERGY, &u32)) {
+    const float value = static_cast<float>(u32) * HP_ENERGY_YIELD_SCALE;
+    id(inverter_daily_energy).publish_state(value);
+    snprintf(field, sizeof(field), "daily_energy=%.2fkWh", value);
+    hp_append_current_field(summary, field);
+  }
+  if (hp_current_block_u32(bytes, value_start, val_size, block_start, word_count, HP_REG_RATED_POWER, &u32)) {
+    id(inverter_rated_power).publish_state(static_cast<float>(u32));
+    snprintf(field, sizeof(field), "rated_P=%luW", static_cast<unsigned long>(u32));
+    hp_append_current_field(summary, field);
+  }
+  if (hp_current_block_i32(bytes, value_start, val_size, block_start, word_count,
+                           HP_TAG_INVERTER_SOLAR_PV, &i32)) {
+    id(inverter_solar_power_pv1).publish_state(static_cast<float>(i32));
+    snprintf(field, sizeof(field), "solar_PV1=%ldW", static_cast<long>(i32));
+    hp_append_current_field(summary, field);
+  }
+  if (hp_current_block_i32(bytes, value_start, val_size, block_start, word_count,
+                           static_cast<uint16_t>(HP_TAG_INVERTER_SOLAR_PV + 2), &i32)) {
+    id(inverter_solar_power_pv2).publish_state(static_cast<float>(i32));
+    snprintf(field, sizeof(field), "solar_PV2=%ldW", static_cast<long>(i32));
+    hp_append_current_field(summary, field);
+  }
+
+  return summary;
+}
+
 static inline std::string hp_publish_current_battery_registers(uint8_t device_id,
                                                                const std::vector<uint8_t> &bytes,
                                                                size_t value_start, size_t val_size,
@@ -1578,10 +1822,6 @@ static inline std::string hp_format_typed_tlv(uint8_t device_id, const std::vect
     const int16_t v1 = hp_i16be(bytes[pos + 3], bytes[pos + 4]);
     const int16_t v2 = hp_i16be(bytes[pos + 5], bytes[pos + 6]);
     const int16_t v3 = hp_i16be(bytes[pos + 7], bytes[pos + 8]);
-    if (device_id == HP_DEV_INVERTER && tag == HP_TAG_PHASE_ACTIVE_POWER_I16) {
-      snprintf(line, sizeof(line), "tag=0x%04X P A=%dW B=%dW C=%dW", tag, v1, v2, v3);
-      return line;
-    }
     snprintf(line, sizeof(line), "tag=0x%04X i16[3]=%d,%d,%d", tag, v1, v2, v3);
     return line;
   }
@@ -1608,29 +1848,9 @@ static inline std::string hp_format_typed_tlv(uint8_t device_id, const std::vect
                v2 * HP_PHASE_CURRENT_SCALE, v3 * HP_PHASE_CURRENT_SCALE);
       return line;
     }
-    if (tag == HP_TAG_PHASE_ACTIVE_POWER) {
-      snprintf(line, sizeof(line), "tag=0x%04X P A=%ldW B=%ldW C=%ldW", tag, static_cast<long>(v1),
-               static_cast<long>(v2), static_cast<long>(v3));
-      return line;
-    }
-    if (device_id == HP_DEV_INVERTER && tag == HP_TAG_PHASE_ACTIVE_POWER_ALT) {
-      snprintf(line, sizeof(line), "tag=0x%04X P A=%ldW B=%ldW C=%ldW", tag, static_cast<long>(v1),
-               static_cast<long>(v2), static_cast<long>(v3));
-      return line;
-    }
     if (tag == HP_TAG_PHASE_VOLTAGE_U32) {
       snprintf(line, sizeof(line), "tag=0x%04X phase_V A=%.1f B=%.1f C=%.1f", tag, v1 * HP_PHASE_VOLTAGE_SCALE,
                v2 * HP_PHASE_VOLTAGE_SCALE, v3 * HP_PHASE_VOLTAGE_SCALE);
-      return line;
-    }
-    if (tag == HP_TAG_INVERTER_TIMES) {
-      char t0[32];
-      char t1[32];
-      char t2[32];
-      hp_format_fc41_local_time(static_cast<uint32_t>(v1), t0, sizeof(t0));
-      hp_format_fc41_local_time(static_cast<uint32_t>(v2), t1, sizeof(t1));
-      hp_format_fc41_local_time(static_cast<uint32_t>(v3), t2, sizeof(t2));
-      snprintf(line, sizeof(line), "tag=0x%04X startup=%s shutdown=%s field3=%s", tag, t0, t1, t2);
       return line;
     }
     snprintf(line, sizeof(line), "tag=0x%04X i32[3]=%ld,%ld,%ld", tag, static_cast<long>(v1), static_cast<long>(v2),
@@ -1979,35 +2199,7 @@ static inline void hp_try_publish_known_tlv(uint8_t device_id, uint16_t tag, uin
     hp_publish_phase_current_sensors(device_id, currents);
     return;
   }
-  if (tag == HP_TAG_PHASE_ACTIVE_POWER && type == 0x06) {
-    const int32_t watts[3] = {hp_i32be(bytes, pos + 3), hp_i32be(bytes, pos + 7), hp_i32be(bytes, pos + 11)};
-    hp_publish_phase_active_power_sensors(device_id, watts);
-    return;
-  }
-  if (tag == HP_TAG_PHASE_ACTIVE_POWER_ALT && type == 0x06) {
-    if (device_id != HP_DEV_INVERTER)
-      return;
-    const int32_t watts[3] = {hp_i32be(bytes, pos + 3), hp_i32be(bytes, pos + 7), hp_i32be(bytes, pos + 11)};
-    hp_publish_phase_active_power_sensors(device_id, watts);
-    return;
-  }
-  if (tag == HP_TAG_INVERTER_TIMES && type == 0x06) {
-    const uint32_t startup = hp_u32be(bytes, pos + 3);
-    const uint32_t shutdown = hp_u32be(bytes, pos + 7);
-    const uint32_t field3 = hp_u32be(bytes, pos + 11);
-    hp_publish_inverter_times(device_id, startup, shutdown, field3);
-    return;
-  }
-
   uint16_t voltages[3]{};
-  if (tag == HP_TAG_PHASE_ACTIVE_POWER_I16 && type == 0x03) {
-    if (device_id != HP_DEV_INVERTER)
-      return;
-    const int32_t watts[3] = {hp_i16be(bytes[pos + 3], bytes[pos + 4]), hp_i16be(bytes[pos + 5], bytes[pos + 6]),
-                              hp_i16be(bytes[pos + 7], bytes[pos + 8])};
-    hp_publish_phase_active_power_sensors(device_id, watts);
-    return;
-  }
   if (tag == HP_TAG_PHASE_VOLTAGE_TLV && type == 0x03) {
     voltages[0] = static_cast<uint16_t>(hp_i16be(bytes[pos + 3], bytes[pos + 4]));
     voltages[1] = static_cast<uint16_t>(hp_i16be(bytes[pos + 5], bytes[pos + 6]));
@@ -2046,11 +2238,18 @@ static inline void hp_walk_current_data_tlvs(const std::vector<uint8_t> &bytes, 
       break;
 
     std::string entry = hp_format_current_data_tlv(device_id, bytes, pos, tag, word_count, val_size);
+    std::string decoded_fields = hp_publish_current_inverter_registers(
+        device_id, bytes, pos + 3, val_size, tag, word_count);
     const std::string battery_fields = hp_publish_current_battery_registers(
         device_id, bytes, pos + 3, val_size, tag, word_count);
     if (!battery_fields.empty()) {
+      if (!decoded_fields.empty())
+        decoded_fields += " ";
+      decoded_fields += battery_fields;
+    }
+    if (!decoded_fields.empty()) {
       entry += " decoded={";
-      entry += battery_fields;
+      entry += decoded_fields;
       entry += "}";
     }
     entries.push_back(entry);

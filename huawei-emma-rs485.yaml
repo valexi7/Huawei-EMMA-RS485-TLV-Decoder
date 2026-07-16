@@ -258,6 +258,14 @@ text_sensor:
       return std::nullopt;
 
   - platform: template
+    id: inverter_status
+    name: "Inverter Status"
+    icon: mdi:solar-power-variant
+    entity_category: diagnostic
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
     id: emma_serial_number
     internal: true
     name: "EMMA Serial Number"
@@ -491,6 +499,82 @@ sensor:
 
   # Inverter — device ID 12 (0x0C), typically 0x35 data frames
   - platform: template
+    id: inverter_pv1_voltage
+    name: "Inverter PV1 Voltage"
+    icon: mdi:solar-panel
+    device_class: voltage
+    state_class: measurement
+    unit_of_measurement: V
+    accuracy_decimals: 1
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_pv1_current
+    name: "Inverter PV1 Current"
+    icon: mdi:current-dc
+    device_class: current
+    state_class: measurement
+    unit_of_measurement: A
+    accuracy_decimals: 2
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_input_power
+    name: "Inverter Input Power"
+    icon: mdi:solar-power-variant
+    device_class: power
+    state_class: measurement
+    unit_of_measurement: W
+    accuracy_decimals: 0
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_rated_power
+    name: "Inverter Rated Power"
+    icon: mdi:flash-triangle
+    device_class: power
+    entity_category: diagnostic
+    unit_of_measurement: W
+    accuracy_decimals: 0
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_grid_frequency
+    name: "Inverter Grid Frequency"
+    icon: mdi:sine-wave
+    device_class: frequency
+    state_class: measurement
+    unit_of_measurement: Hz
+    accuracy_decimals: 2
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_internal_temperature
+    name: "Inverter Internal Temperature"
+    icon: mdi:thermometer
+    device_class: temperature
+    state_class: measurement
+    unit_of_measurement: °C
+    accuracy_decimals: 1
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_insulation_resistance
+    name: "Inverter Insulation Resistance"
+    icon: mdi:omega
+    state_class: measurement
+    unit_of_measurement: MΩ
+    accuracy_decimals: 3
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
     id: inverter_phase_a_voltage
     name: "Inverter Phase A Voltage"
     icon: mdi:sine-wave
@@ -586,39 +670,6 @@ sensor:
     state_class: measurement
     unit_of_measurement: A
     accuracy_decimals: 3
-    lambda: |-
-      return std::nullopt;
-
-  - platform: template
-    id: inverter_phase_a_power
-    name: "Inverter Phase A Power"
-    icon: mdi:flash
-    device_class: power
-    state_class: measurement
-    unit_of_measurement: W
-    accuracy_decimals: 0
-    lambda: |-
-      return std::nullopt;
-
-  - platform: template
-    id: inverter_phase_b_power
-    name: "Inverter Phase B Power"
-    icon: mdi:flash
-    device_class: power
-    state_class: measurement
-    unit_of_measurement: W
-    accuracy_decimals: 0
-    lambda: |-
-      return std::nullopt;
-
-  - platform: template
-    id: inverter_phase_c_power
-    name: "Inverter Phase C Power"
-    icon: mdi:flash
-    device_class: power
-    state_class: measurement
-    unit_of_measurement: W
-    accuracy_decimals: 0
     lambda: |-
       return std::nullopt;
 

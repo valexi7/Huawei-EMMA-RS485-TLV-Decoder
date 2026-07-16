@@ -232,32 +232,27 @@ Their decoded values remain available through entities and frame logs. `Unknown
 FC41 Device Tags` contains traffic from unrecognized device IDs. Unknown tags do
 not create guessed numeric entities.
 
-Battery model tag `0x9640` exposes its leading null-terminated, zero-padded
-string as `Battery Pack Model`; its remaining bytes are crypto metadata rather
-than part of the model name. Tag `0x985B` is split into three 30-byte fields exposed as
-`Battery Pack 1 Model`, `Battery Pack 2 Model`, and `Battery Pack 3 Model`.
-Battery identity tags `0x9538`, `0x9559`, and `0x9583` publish `Battery Pack 1 SN`,
-`Battery Pack 2 SN`, and `Battery Pack 3 SN`; the shared firmware run is published as
-`Battery Firmware` when present. Battery temperature registers `0x9634` through `0x9639`
-are scaled as 0.1 °C values.
+## Motivation
 
-Function `0x35` items are decoded as bounded, contiguous register windows rather than
-as isolated exact tags. This allows a known field to be read when Huawei includes it
-inside a larger block while preventing reads across the advertised block boundary.
-The capture-backed battery entities include battery power, bus voltage/current, SOC,
-internal temperature, charged/discharged energy today, lifetime charged/discharged
-energy, rated capacity, and each pack's SOC, power, voltage, total energy, and
-highest/lowest temperature. Signed power and current retain the inverter's raw sign
-convention.
-Inverter identification tag `0x7530` publishes `Inverter Model`, `Inverter Serial Number`,
-and `Inverter Software Version`. Long current-data TLVs with other printable content are
-rendered as semicolon-separated ASCII runs in frame logs. Typed reports accept inline
-byte lengths only for established identity/model tags, preventing printable payload
-bytes from being mistaken for nested TLV headers.
-Current-data TLV counts use the low seven bits of the count byte; the high bit
-is retained as a frame flag in decoder summaries.
+When Huawei EMMA is connected to an inverter, it takes control of the system.
+EMMA communicates with the inverter over Modbus, but most of this communication
+does not use the standard Modbus function codes.
 
-Known decoding is device-scoped. In particular, meter tags `0x7729`, `0x7734`,
-and `0x9C52` are retained as voltage-like candidates in logs/discovery but do
-not overwrite the phase-voltage sensors; canonical meter phase voltage and
-frequency currently come from `0x7733`.
+Adding a second Modbus master to poll values from the system can work, but the
+additional traffic may eventually overload the bus. This can delay responses
+and potentially disrupt communication between EMMA and the inverter.
+
+Huawei uses the proprietary, user-defined Modbus function code `0x41` for this
+communication. Huawei's documentation describes `0x41` as a file-transfer
+function, which this repository also recognizes, but the protocol carries much
+more than file transfers. Sub-function `0x89` is used for reports, while
+sub-function `0x35` carries control and sensor data.
+
+Huawei EMMA RS485 TLV Decoder connects to the same RS485 bus as a passive
+listener. It observes this control traffic and decodes the values into Home
+Assistant sensors without adding another master or transmitting on the bus.
+
+All sensor tags and payload formats supported by this project have been
+reverse-engineered from captured traffic. No public documentation is currently
+available for Huawei's proprietary use of the user-defined function code
+`0x41`.

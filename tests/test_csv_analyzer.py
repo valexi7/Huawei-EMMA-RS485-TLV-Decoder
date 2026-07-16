@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -10,6 +11,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 
 from analyze_huawei_csv import (  # noqa: E402
     Block,
+    analyze,
     extract_raw_frame,
     modbus_crc,
     parse_current_data_frame,
@@ -44,6 +46,21 @@ class CsvAnalyzerTests(unittest.TestCase):
         frame = body + modbus_crc(body).to_bytes(2, "little")
         with self.assertRaisesRegex(ValueError, "crosses the payload boundary"):
             parse_current_data_frame(frame)
+
+    def test_accepts_lowercase_logger_frame_column(self):
+        payload = bytes.fromhex("D7 01 7D 5F 02 00 00 04 41")
+        body = bytes([0x0C, 0x41, 0x35, len(payload)]) + payload
+        frame = body + modbus_crc(body).to_bytes(2, "little")
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "capture.csv"
+            path.write_text(
+                "timestamp,rs485frame\n"
+                f"16.7.2026 klo 9.09.37,{frame.hex(' ')}\n",
+                encoding="utf-8",
+            )
+            result = analyze(path)
+        self.assertEqual(result["frame_stats"]["parsed"], 1)
+        self.assertEqual(result["fields"]["active_power"]["last"]["value"], 1089)
 
 
 if __name__ == "__main__":
