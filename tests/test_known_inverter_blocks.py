@@ -80,6 +80,23 @@ class KnownInverterBlockTests(unittest.TestCase):
         self.assertEqual(read_field(0x7D6E, 10, payload, 0x7D72, 2) * 0.01, 1.17)
         self.assertIsNone(read_field(0x7D6E, 10, payload, 0x7D80, 2))
 
+    def test_alarm_window_and_fault_code(self):
+        alarm_payload = block_with_fields(
+            0x7D08,
+            5,
+            {
+                0x7D08: (0x0080).to_bytes(2, "big"),
+                0x7D09: (0x0400).to_bytes(2, "big"),
+                0x7D0A: (0x0020).to_bytes(2, "big"),
+            },
+        )
+        self.assertEqual(read_field(0x7D08, 5, alarm_payload, 0x7D08, 1), 0x0080)
+        self.assertEqual(read_field(0x7D08, 5, alarm_payload, 0x7D09, 1), 0x0400)
+        self.assertEqual(read_field(0x7D08, 5, alarm_payload, 0x7D0A, 1), 0x0020)
+
+        realtime_payload = block_with_fields(0x7D40, 33, {0x7D5A: (17).to_bytes(2, "big")})
+        self.assertEqual(read_field(0x7D40, 33, realtime_payload, 0x7D5A, 1), 17)
+
     def test_rated_power_is_inside_capabilities_window(self):
         payload = block_with_fields(0x7574, 13, {0x7579: (10000).to_bytes(4, "big")})
         self.assertEqual(read_field(0x7574, 13, payload, 0x7579, 2), 10000)
@@ -92,6 +109,10 @@ class KnownInverterBlockTests(unittest.TestCase):
             "HP_REG_STARTUP_TIME": "0x7D5B",
             "HP_REG_SHUTDOWN_TIME": "0x7D5D",
             "HP_REG_RATED_POWER": "0x7579",
+            "HP_REG_INVERTER_FAULT_CODE": "0x7D5A",
+            "HP_REG_INVERTER_ALARM_1": "0x7D08",
+            "HP_REG_INVERTER_ALARM_2": "0x7D09",
+            "HP_REG_INVERTER_ALARM_3": "0x7D0A",
         }
         for name, value in expected.items():
             self.assertRegex(source, rf"{name}\s*=\s*{re.escape(value)}\s*;")
@@ -104,8 +125,15 @@ class KnownInverterBlockTests(unittest.TestCase):
             "inverter_internal_temperature",
             "inverter_insulation_resistance",
             "inverter_status",
+            "inverter_active_alarms",
+            "inverter_fault_code",
+            "inverter_alarm_1_raw",
+            "inverter_alarm_2_raw",
+            "inverter_alarm_3_raw",
         ):
             self.assertIn(f"id: {entity_id}", package)
+        self.assertIn('"ZZ Reverse Engineering - %s FC41 Tags %u"', source)
+        self.assertIn('"ZZ Reverse Engineering - Unknown FC41 Device Tags %u"', source)
         self.assertNotIn("id: inverter_phase_a_power", package)
         self.assertNotIn("hp_publish_phase_active_power_sensors", source)
 

@@ -53,9 +53,25 @@ KNOWN_FIELDS = {
     "grid_frequency": (0x7D55, 1, False, 0.01, "Hz"),
     "internal_temperature": (0x7D57, 1, True, 0.1, "C"),
     "insulation_resistance": (0x7D58, 1, False, 0.001, "MOhm"),
+    "inverter_status": (0x7D59, 1, False, 1.0, ""),
+    "inverter_fault_code": (0x7D5A, 1, False, 1.0, ""),
+    "inverter_alarm_1": (0x7D08, 1, False, 1.0, ""),
+    "inverter_alarm_2": (0x7D09, 1, False, 1.0, ""),
+    "inverter_alarm_3": (0x7D0A, 1, False, 1.0, ""),
     "total_yield": (0x7D6A, 2, False, 0.01, "kWh"),
     "daily_yield": (0x7D72, 2, False, 0.01, "kWh"),
     "legacy_daily_candidate": (0x7D80, 2, False, 0.01, "kWh"),
+    "battery_running_status": (0x9088, 1, False, 1.0, ""),
+    "battery_working_mode": (0x908E, 1, False, 1.0, ""),
+    "battery_maximum_charge_power": (0xB7E3, 2, False, 1.0, "W"),
+    "battery_maximum_discharge_power": (0xB7E5, 2, False, 1.0, "W"),
+    "battery_end_of_charge_soc": (0xB7E9, 1, False, 0.1, "%"),
+    "battery_end_of_discharge_soc": (0xB7EA, 1, False, 0.1, "%"),
+    "battery_forced_period": (0xB7EB, 1, False, 1.0, "min"),
+    "battery_forced_power": (0xB7EC, 2, True, 1.0, "W"),
+    "battery_working_mode_setting": (0xB7EE, 1, False, 1.0, ""),
+    "battery_charge_from_grid": (0xB7EF, 1, False, 1.0, ""),
+    "battery_grid_charge_cutoff_soc": (0xB7F0, 1, False, 0.1, "%"),
     "phase_a_voltage": (0x90ED, 2, True, 0.1, "V"),
     "phase_b_voltage": (0x90EF, 2, True, 0.1, "V"),
     "phase_c_voltage": (0x90F1, 2, True, 0.1, "V"),
@@ -93,6 +109,12 @@ def modbus_crc(data: bytes) -> int:
 
 
 def extract_raw_frame(value: str) -> bytes:
+    try:
+        parsed = json.loads(value)
+    except (json.JSONDecodeError, TypeError):
+        parsed = None
+    if isinstance(parsed, dict) and isinstance(parsed.get("raw"), str):
+        value = parsed["raw"]
     raw = value[value.rfind("raw=") + 4 :] if "raw=" in value else value
     return bytes(int(pair, 16) for pair in re.findall(r"(?<![0-9A-Fa-f])[0-9A-Fa-f]{2}(?![0-9A-Fa-f])", raw))
 
@@ -103,6 +125,14 @@ def timestamp_second(value: str) -> int:
         raise ValueError(f"Timestamp has no time-of-day: {value!r}")
     hour, minute, second = map(int, match.groups())
     return hour * 3600 + minute * 60 + second
+
+
+def frame_bus_clock(blocks: Iterable[Block]) -> int | None:
+    for block in blocks:
+        unix_seconds = read_register(block, 0x7D6E, 2)
+        if unix_seconds is not None and 1_577_836_800 <= unix_seconds < 2_208_988_800:
+            return unix_seconds
+    return None
 
 
 def read_register(block: Block, register: int, words: int, signed: bool = False) -> int | None:
@@ -212,9 +242,19 @@ def analyze(path: Path, top: int = 20) -> dict:
     candidates_16: dict[int, list[Observation]] = defaultdict(list)
     candidates_32: dict[int, list[Observation]] = defaultdict(list)
     starts: dict[int, dict] = {}
-    stats = {"rows": 0, "parsed": 0, "crc_valid": 0, "aligned": 0, "flagged": 0, "malformed": 0}
+    stats = {
+        "rows": 0,
+        "parsed": 0,
+        "crc_valid": 0,
+        "aligned": 0,
+        "flagged": 0,
+        "malformed": 0,
+        "inferred_timestamps": 0,
+    }
     first_timestamp = None
     last_timestamp = None
+    last_clock_row = None
+    last_clock_second = None
 
     with path.open("r", encoding="utf-8-sig", newline="") as source:
         reader = csv.DictReader(source)
@@ -229,12 +269,27 @@ def analyze(path: Path, top: int = 20) -> dict:
             first_timestamp = first_timestamp or timestamp
             last_timestamp = timestamp
             try:
-                second = timestamp_second(timestamp)
                 frame = extract_raw_frame(row[frame_column])
                 raw_count, flagged, blocks = parse_current_data_frame(frame)
             except (TypeError, ValueError):
                 stats["malformed"] += 1
                 continue
+            try:
+                second = timestamp_second(timestamp)
+            except (TypeError, ValueError):
+                clock_second = frame_bus_clock(blocks)
+                if clock_second is not None:
+                    second = clock_second
+                    last_clock_row = stats["rows"]
+                    last_clock_second = clock_second
+                elif last_clock_row is not None and last_clock_second is not None:
+                    # Captures normally contain a bus-clock window every few
+                    # frames. Three seconds per intervening row keeps the
+                    # timeline monotonic until the next exact clock anchor.
+                    second = last_clock_second + ((stats["rows"] - last_clock_row) * 3)
+                else:
+                    second = stats["rows"] * 3
+                stats["inferred_timestamps"] += 1
             stats["parsed"] += 1
             stats["crc_valid"] += modbus_crc(frame[:-2]) == int.from_bytes(frame[-2:], "little")
             stats["aligned"] += len(blocks) == (raw_count & 0x7F)

@@ -9,6 +9,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DECODER = ROOT / "components" / "huawei_emma_tlv" / "huawei_proprietary.inc"
+PACKAGE = ROOT / "huawei-emma-rs485.yaml"
 
 
 def read_field(block_start: int, word_count: int, payload: bytes, register: int, words: int, *, signed=False):
@@ -65,6 +66,56 @@ class KnownBatteryBlockTests(unittest.TestCase):
         self.assertAlmostEqual(read_field(0x9088, 24, payload, 0x909D, 1, signed=True) * 0.1, -3.3)
         self.assertAlmostEqual(read_field(0x9088, 24, payload, 0x909E, 1, signed=True) * 0.1, 41.3)
 
+    def test_working_mode_and_parameter_windows(self):
+        live_payload = block_with_fields(
+            0x908B,
+            4,
+            {
+                0x908B: (7615).to_bytes(2, "big"),
+                0x908C: (350).to_bytes(2, "big"),
+                0x908E: (9).to_bytes(2, "big"),
+            },
+        )
+        self.assertEqual(read_field(0x908B, 4, live_payload, 0x908E, 1), 9)
+
+        power_payload = block_with_fields(
+            0xB7E3,
+            4,
+            {
+                0xB7E3: (10000).to_bytes(4, "big"),
+                0xB7E5: (10000).to_bytes(4, "big"),
+            },
+        )
+        self.assertEqual(read_field(0xB7E3, 4, power_payload, 0xB7E3, 2), 10000)
+        self.assertEqual(read_field(0xB7E3, 4, power_payload, 0xB7E5, 2), 10000)
+
+        setting_payload = block_with_fields(
+            0xB7EB,
+            12,
+            {
+                0xB7EB: (0).to_bytes(2, "big"),
+                0xB7EC: (0).to_bytes(4, "big", signed=True),
+                0xB7EE: (5).to_bytes(2, "big"),
+                0xB7EF: (1).to_bytes(2, "big"),
+                0xB7F0: (1000).to_bytes(2, "big"),
+            },
+        )
+        self.assertEqual(read_field(0xB7EB, 12, setting_payload, 0xB7EE, 1), 5)
+        self.assertEqual(read_field(0xB7EB, 12, setting_payload, 0xB7EF, 1), 1)
+        self.assertEqual(read_field(0xB7EB, 12, setting_payload, 0xB7F0, 1) * 0.1, 100.0)
+
+    def test_luna_tou_schedule_layout(self):
+        payload = bytearray(43 * 2)
+        payload[0:2] = (1).to_bytes(2, "big")
+        payload[2:4] = (18 * 60).to_bytes(2, "big")
+        payload[4:6] = (10 * 60).to_bytes(2, "big")
+        payload[6] = 1  # Discharge
+        payload[7] = 0x7F  # Every day
+        self.assertEqual(read_field(0xB897, 43, payload, 0xB897, 1), 1)
+        self.assertEqual(read_field(0xB897, 43, payload, 0xB898, 1), 18 * 60)
+        self.assertEqual(read_field(0xB897, 43, payload, 0xB899, 1), 10 * 60)
+        self.assertEqual(payload[6:8], bytes([1, 0x7F]))
+
     def test_pack_2_identity_is_at_byte_18_and_firmware_at_byte_38(self):
         payload = block_with_fields(
             0x9559,
@@ -81,15 +132,32 @@ class KnownBatteryBlockTests(unittest.TestCase):
 
     def test_decoder_constants_match_capture_map(self):
         source = DECODER.read_text(encoding="utf-8")
+        package = PACKAGE.read_text(encoding="utf-8")
         expected = {
             "HP_TAG_BATTERY_DISCHARGED_TODAY": "0x9099",
             "HP_TAG_BATTERY_TOTAL_BLOCK": "0x90CA",
             "HP_TAG_BATTERY_TOTAL_DISCHARGE": "0x90CC",
             "HP_TAG_BATTERY_RATED_CAPACITY": "0x90CE",
             "HP_TAG_BATTERY_PACK_3_TOTAL_ENERGY": "0x95B4",
+            "HP_REG_BATTERY_WORKING_MODE": "0x908E",
+            "HP_REG_BATTERY_WORKING_MODE_SETTING": "0xB7EE",
+            "HP_REG_BATTERY_TOU_PERIODS": "0xB897",
         }
         for name, value in expected.items():
             self.assertRegex(source, rf"{name}\s*=\s*{re.escape(value)}\s*;")
+        for entity_id in (
+            "battery_running_status",
+            "battery_working_mode",
+            "battery_working_mode_setting",
+            "battery_charge_from_grid",
+            "battery_tou_schedule",
+            "inverter_battery_maximum_charge_power",
+            "inverter_battery_maximum_discharge_power",
+            "inverter_battery_end_of_charge_soc",
+            "inverter_battery_end_of_discharge_soc",
+            "inverter_battery_grid_charge_cutoff_soc",
+        ):
+            self.assertIn(f"id: {entity_id}", package)
         self.assertIn("type >= 0x20 && !hp_tlv_inline_length_tag(tag)", source)
 
 

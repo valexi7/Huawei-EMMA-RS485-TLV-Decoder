@@ -45,8 +45,12 @@ static constexpr uint16_t HP_REG_GRID_FREQUENCY = 0x7D55;
 static constexpr uint16_t HP_REG_INTERNAL_TEMPERATURE = 0x7D57;
 static constexpr uint16_t HP_REG_INSULATION_RESISTANCE = 0x7D58;
 static constexpr uint16_t HP_REG_INVERTER_STATUS = 0x7D59;
+static constexpr uint16_t HP_REG_INVERTER_FAULT_CODE = 0x7D5A;
 static constexpr uint16_t HP_REG_STARTUP_TIME = 0x7D5B;
 static constexpr uint16_t HP_REG_SHUTDOWN_TIME = 0x7D5D;
+static constexpr uint16_t HP_REG_INVERTER_ALARM_1 = 0x7D08;
+static constexpr uint16_t HP_REG_INVERTER_ALARM_2 = 0x7D09;
+static constexpr uint16_t HP_REG_INVERTER_ALARM_3 = 0x7D0A;
 static constexpr uint16_t HP_TAG_INVERTER_CAPABILITIES = 0x7574;
 static constexpr uint16_t HP_REG_RATED_POWER = 0x7579;
 static constexpr uint16_t HP_TAG_BATTERY_CHARGED_TODAY = 0x9097;   // u32, kWh (x0.01)
@@ -59,8 +63,22 @@ static constexpr uint16_t HP_TAG_BATTERY_RATED_CAPACITY = 0x90CE;
 static constexpr uint16_t HP_TAG_BATTERY_POWER = 0x9089;  // i32, charge/discharge W
 static constexpr uint16_t HP_TAG_BATTERY_BUS_VOLTAGE = 0x908B;
 static constexpr uint16_t HP_TAG_BATTERY_SOC = 0x908C;
+static constexpr uint16_t HP_REG_BATTERY_RUNNING_STATUS = 0x9088;
+static constexpr uint16_t HP_REG_BATTERY_WORKING_MODE = 0x908E;
 static constexpr uint16_t HP_TAG_BATTERY_BUS_CURRENT = 0x909D;
 static constexpr uint16_t HP_TAG_BATTERY_INTERNAL_TEMPERATURE = 0x909E;
+static constexpr uint16_t HP_REG_BATTERY_MAXIMUM_CHARGE_POWER = 0xB7E3;
+static constexpr uint16_t HP_REG_BATTERY_MAXIMUM_DISCHARGE_POWER = 0xB7E5;
+static constexpr uint16_t HP_REG_BATTERY_END_OF_CHARGE_SOC = 0xB7E9;
+static constexpr uint16_t HP_REG_BATTERY_END_OF_DISCHARGE_SOC = 0xB7EA;
+static constexpr uint16_t HP_REG_BATTERY_FORCED_PERIOD = 0xB7EB;
+static constexpr uint16_t HP_REG_BATTERY_FORCED_POWER = 0xB7EC;
+static constexpr uint16_t HP_REG_BATTERY_WORKING_MODE_SETTING = 0xB7EE;
+static constexpr uint16_t HP_REG_BATTERY_CHARGE_FROM_GRID = 0xB7EF;
+static constexpr uint16_t HP_REG_BATTERY_GRID_CHARGE_CUTOFF_SOC = 0xB7F0;
+static constexpr uint16_t HP_REG_BATTERY_TOU_PERIODS = 0xB897;
+static constexpr size_t HP_BATTERY_TOU_PERIOD_WORDS = 43;
+static constexpr size_t HP_BATTERY_TOU_MAX_PERIODS = 14;
 static constexpr uint16_t HP_TAG_INVERTER_SOLAR_PV = 0x7E44;         // 0x35 words=4 i32[2], PV1/PV2 watts
 static constexpr uint16_t HP_TAG_SECONDARY_ACTIVE_POWER = 0x9385;  // inverter secondary active-power candidate
 static constexpr uint16_t HP_TAG_BUS_CLOCK = 0x7D6E;             // variable words: u32 unix sec, optional u32 seq
@@ -307,8 +325,9 @@ static inline void hp_publish_tag_page(uint8_t device_id, size_t page, const std
   const char *role = hp_device_role_name(device_id);
   if (role == nullptr)
     return;
-  char entity_name[48];
-  snprintf(entity_name, sizeof(entity_name), "%s Discovered FC41 Tags %u", role, static_cast<unsigned>(page + 1));
+  char entity_name[72];
+  snprintf(entity_name, sizeof(entity_name), "ZZ Reverse Engineering - %s FC41 Tags %u", role,
+           static_cast<unsigned>(page + 1));
   hp_publish_optional_text_sensor(entity_name, value.empty() ? "(none yet)" : value);
 }
 
@@ -434,8 +453,9 @@ static inline void hp_publish_optional_text_sensor(const char *entity_name, cons
 }
 
 static inline void hp_publish_unknown_tag_page(size_t page, const std::string &value) {
-  char entity_name[48];
-  snprintf(entity_name, sizeof(entity_name), "Unknown FC41 Device Tags %u", static_cast<unsigned>(page + 1));
+  char entity_name[72];
+  snprintf(entity_name, sizeof(entity_name), "ZZ Reverse Engineering - Unknown FC41 Device Tags %u",
+           static_cast<unsigned>(page + 1));
   hp_publish_optional_text_sensor(entity_name, value.empty() ? "(none yet)" : value);
 }
 
@@ -1042,6 +1062,10 @@ static inline bool hp_tag_has_established_semantics(uint8_t device_id, uint16_t 
     case HP_REG_INTERNAL_TEMPERATURE:
     case HP_REG_INSULATION_RESISTANCE:
     case HP_REG_INVERTER_STATUS:
+    case HP_REG_INVERTER_FAULT_CODE:
+    case HP_REG_INVERTER_ALARM_1:
+    case HP_REG_INVERTER_ALARM_2:
+    case HP_REG_INVERTER_ALARM_3:
     case HP_REG_STARTUP_TIME:
     case HP_REG_SHUTDOWN_TIME:
     case HP_TAG_LINE_VOLTAGE:
@@ -1063,8 +1087,20 @@ static inline bool hp_tag_has_established_semantics(uint8_t device_id, uint16_t 
     case HP_TAG_BATTERY_POWER:
     case HP_TAG_BATTERY_BUS_VOLTAGE:
     case HP_TAG_BATTERY_SOC:
+    case HP_REG_BATTERY_RUNNING_STATUS:
+    case HP_REG_BATTERY_WORKING_MODE:
     case HP_TAG_BATTERY_BUS_CURRENT:
     case HP_TAG_BATTERY_INTERNAL_TEMPERATURE:
+    case HP_REG_BATTERY_MAXIMUM_CHARGE_POWER:
+    case HP_REG_BATTERY_MAXIMUM_DISCHARGE_POWER:
+    case HP_REG_BATTERY_END_OF_CHARGE_SOC:
+    case HP_REG_BATTERY_END_OF_DISCHARGE_SOC:
+    case HP_REG_BATTERY_FORCED_PERIOD:
+    case HP_REG_BATTERY_FORCED_POWER:
+    case HP_REG_BATTERY_WORKING_MODE_SETTING:
+    case HP_REG_BATTERY_CHARGE_FROM_GRID:
+    case HP_REG_BATTERY_GRID_CHARGE_CUTOFF_SOC:
+    case HP_REG_BATTERY_TOU_PERIODS:
     case HP_TAG_INVERTER_SOLAR_PV:
     case HP_TAG_BUS_CLOCK:
     case HP_TAG_SERIAL_NUMBER:
@@ -1337,6 +1373,191 @@ static inline void hp_append_current_field(std::string &summary, const char *fie
   summary += field;
 }
 
+static inline void hp_append_alarm_name(std::string &alarms, bool active, const char *name) {
+  if (!active || alarms.size() >= 236)
+    return;
+  const size_t separator_size = alarms.empty() ? 0 : 2;
+  const size_t name_size = strlen(name);
+  if (alarms.size() + separator_size + name_size > 236) {
+    alarms += " ...";
+    return;
+  }
+  if (!alarms.empty())
+    alarms += "; ";
+  alarms += name;
+}
+
+static inline std::string hp_inverter_alarm_names(uint16_t alarm_1, uint16_t alarm_2, uint16_t alarm_3) {
+  std::string alarms;
+  hp_append_alarm_name(alarms, alarm_1 & 0x0001, "High String Input Voltage");
+  hp_append_alarm_name(alarms, alarm_1 & 0x0002, "DC Arc Fault");
+  hp_append_alarm_name(alarms, alarm_1 & 0x0004, "String Reverse Connection");
+  hp_append_alarm_name(alarms, alarm_1 & 0x0008, "String Current Backfeed");
+  hp_append_alarm_name(alarms, alarm_1 & 0x0010, "Abnormal String Power");
+  hp_append_alarm_name(alarms, alarm_1 & 0x0020, "AFCI Self-Check Fail");
+  hp_append_alarm_name(alarms, alarm_1 & 0x0040, "Phase Wire Short-Circuited to PE");
+  hp_append_alarm_name(alarms, alarm_1 & 0x0080, "Grid Loss");
+  hp_append_alarm_name(alarms, alarm_1 & 0x0100, "Grid Undervoltage");
+  hp_append_alarm_name(alarms, alarm_1 & 0x0200, "Grid Overvoltage");
+  hp_append_alarm_name(alarms, alarm_1 & 0x0400, "Grid Voltage Imbalance");
+  hp_append_alarm_name(alarms, alarm_1 & 0x0800, "Grid Overfrequency");
+  hp_append_alarm_name(alarms, alarm_1 & 0x1000, "Grid Underfrequency");
+  hp_append_alarm_name(alarms, alarm_1 & 0x2000, "Unstable Grid Frequency");
+  hp_append_alarm_name(alarms, alarm_1 & 0x4000, "Output Overcurrent");
+  hp_append_alarm_name(alarms, alarm_1 & 0x8000, "Output DC Component Overhigh");
+
+  hp_append_alarm_name(alarms, alarm_2 & 0x0001, "Abnormal Residual Current");
+  hp_append_alarm_name(alarms, alarm_2 & 0x0002, "Abnormal Grounding");
+  hp_append_alarm_name(alarms, alarm_2 & 0x0004, "Low Insulation Resistance");
+  hp_append_alarm_name(alarms, alarm_2 & 0x0008, "Overtemperature");
+  hp_append_alarm_name(alarms, alarm_2 & 0x0010, "Device Fault");
+  hp_append_alarm_name(alarms, alarm_2 & 0x0020, "Upgrade Failed or Version Mismatch");
+  hp_append_alarm_name(alarms, alarm_2 & 0x0040, "License Expired");
+  hp_append_alarm_name(alarms, alarm_2 & 0x0080, "Faulty Monitoring Unit");
+  hp_append_alarm_name(alarms, alarm_2 & 0x0100, "Faulty Power Collector");
+  hp_append_alarm_name(alarms, alarm_2 & 0x0200, "Battery Abnormal");
+  hp_append_alarm_name(alarms, alarm_2 & 0x0400, "Active Islanding");
+  hp_append_alarm_name(alarms, alarm_2 & 0x0800, "Passive Islanding");
+  hp_append_alarm_name(alarms, alarm_2 & 0x1000, "Transient AC Overvoltage");
+  hp_append_alarm_name(alarms, alarm_2 & 0x2000, "Peripheral Port Short Circuit");
+  hp_append_alarm_name(alarms, alarm_2 & 0x4000, "Churn Output Overload");
+  hp_append_alarm_name(alarms, alarm_2 & 0x8000, "Abnormal PV Module Configuration");
+
+  hp_append_alarm_name(alarms, alarm_3 & 0x0001, "Optimizer Fault");
+  hp_append_alarm_name(alarms, alarm_3 & 0x0002, "Built-in PID Operation Abnormal");
+  hp_append_alarm_name(alarms, alarm_3 & 0x0004, "High Input String Voltage to Ground");
+  hp_append_alarm_name(alarms, alarm_3 & 0x0008, "External Fan Abnormal");
+  hp_append_alarm_name(alarms, alarm_3 & 0x0010, "Battery Reverse Connection");
+  hp_append_alarm_name(alarms, alarm_3 & 0x0020, "On-grid/Off-grid Controller Abnormal");
+  hp_append_alarm_name(alarms, alarm_3 & 0x0040, "PV String Loss");
+  hp_append_alarm_name(alarms, alarm_3 & 0x0080, "Internal Fan Abnormal");
+  hp_append_alarm_name(alarms, alarm_3 & 0x0100, "DC Protection Unit Abnormal");
+  hp_append_alarm_name(alarms, alarm_3 & 0x0200, "EL Unit Abnormal");
+  hp_append_alarm_name(alarms, alarm_3 & 0x0400, "Active Adjustment Instruction Abnormal");
+  hp_append_alarm_name(alarms, alarm_3 & 0x0800, "Reactive Adjustment Instruction Abnormal");
+  hp_append_alarm_name(alarms, alarm_3 & 0x1000, "CT Wiring Abnormal");
+  hp_append_alarm_name(alarms, alarm_3 & 0x2000, "DC Arc Fault ADMC");
+  hp_append_alarm_name(alarms, alarm_3 & 0x4000, "DC Switch Abnormal");
+  hp_append_alarm_name(alarms, alarm_3 & 0x8000, "Allowable Battery Discharge Capacity Low");
+  return alarms.empty() ? std::string("No active alarms") : alarms;
+}
+
+static inline const char *hp_battery_running_status_name(uint16_t status) {
+  switch (status) {
+    case 0: return "Offline";
+    case 1: return "Standby";
+    case 2: return "Running";
+    case 3: return "Fault";
+    case 4: return "Sleep mode";
+    default: return nullptr;
+  }
+}
+
+static inline const char *hp_battery_working_mode_name(uint16_t mode) {
+  switch (mode) {
+    case 0: return "None";
+    case 1: return "Forced charge/discharge";
+    case 2: return "Time of use (LG RESU)";
+    case 3: return "Fixed charge/discharge";
+    case 4: return "Maximum self-consumption";
+    case 5: return "Fully fed to grid";
+    case 6: return "TOU (LUNA2000)";
+    case 7: return "Remote scheduling - maximum self-consumption";
+    case 8: return "Remote scheduling - fully fed to grid";
+    case 9: return "Remote scheduling - TOU";
+    case 10: return "AI energy management and scheduling";
+    default: return nullptr;
+  }
+}
+
+static inline const char *hp_battery_working_mode_setting_name(uint16_t mode) {
+  switch (mode) {
+    case 0: return "Adaptive";
+    case 1: return "Fixed charge/discharge";
+    case 2: return "Maximum self-consumption";
+    case 3: return "Time of use (LG RESU)";
+    case 4: return "Fully fed to grid";
+    case 5: return "TOU (LUNA2000)";
+    default: return nullptr;
+  }
+}
+
+static inline std::string hp_named_u16(uint16_t value, const char *name) {
+  if (name != nullptr)
+    return std::string(name);
+  char raw[32];
+  snprintf(raw, sizeof(raw), "Unknown: 0x%04X (%u)", value, value);
+  return std::string(raw);
+}
+
+static inline void hp_append_tou_days(std::string &out, uint8_t days) {
+  if ((days & 0x7F) == 0x7F) {
+    out += "daily";
+    return;
+  }
+  if ((days & 0x7F) == 0) {
+    out += "no days";
+    return;
+  }
+  static const char *const names[7] = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
+  bool first = true;
+  for (size_t day = 0; day < 7; day++) {
+    if ((days & (1U << day)) == 0)
+      continue;
+    if (!first)
+      out += ",";
+    out += names[day];
+    first = false;
+  }
+}
+
+static inline std::string hp_format_battery_tou_periods(const std::vector<uint8_t> &bytes, size_t value_start,
+                                                        size_t val_size, uint16_t block_start,
+                                                        uint8_t word_count) {
+  size_t offset = 0;
+  if (!hp_current_block_field_offset(block_start, word_count, HP_REG_BATTERY_TOU_PERIODS,
+                                     HP_BATTERY_TOU_PERIOD_WORDS, &offset) ||
+      offset + (HP_BATTERY_TOU_PERIOD_WORDS * 2) > val_size ||
+      value_start + offset + (HP_BATTERY_TOU_PERIOD_WORDS * 2) > bytes.size())
+    return std::string();
+
+  const size_t base = value_start + offset;
+  const uint16_t raw_count = hp_u16be(bytes[base], bytes[base + 1]);
+  const size_t count = std::min<size_t>(raw_count, HP_BATTERY_TOU_MAX_PERIODS);
+  std::string out;
+  char period[48];
+  for (size_t index = 0; index < count; index++) {
+    const size_t pos = base + 2 + (index * 6);
+    const uint16_t start_minute = hp_u16be(bytes[pos], bytes[pos + 1]);
+    const uint16_t end_minute = hp_u16be(bytes[pos + 2], bytes[pos + 3]);
+    const uint8_t action = bytes[pos + 4];
+    const uint8_t days = bytes[pos + 5];
+    if (!out.empty())
+      out += "; ";
+    snprintf(period, sizeof(period), "%s %02u:%02u-%02u:%02u ",
+             action == 0 ? "Charge" : action == 1 ? "Discharge" : "Unknown",
+             static_cast<unsigned>(start_minute / 60), static_cast<unsigned>(start_minute % 60),
+             static_cast<unsigned>(end_minute / 60), static_cast<unsigned>(end_minute % 60));
+    if (out.size() + strlen(period) > 220) {
+      out += "...";
+      break;
+    }
+    out += period;
+    hp_append_tou_days(out, days);
+    if (out.size() > 220) {
+      out.resize(220);
+      out += "...";
+      break;
+    }
+  }
+  if (raw_count > HP_BATTERY_TOU_MAX_PERIODS) {
+    if (!out.empty())
+      out += "; ";
+    out += "invalid period count";
+  }
+  return out.empty() ? std::string("No TOU periods") : out;
+}
+
 static inline const char *hp_inverter_status_name(uint16_t status) {
   switch (status) {
     case 0x0000: return "Standby: initializing";
@@ -1388,6 +1609,24 @@ static inline std::string hp_publish_current_inverter_registers(uint8_t device_i
   int16_t i16 = 0;
   uint32_t u32 = 0;
   int32_t i32 = 0;
+
+  uint16_t alarm_1 = 0;
+  uint16_t alarm_2 = 0;
+  uint16_t alarm_3 = 0;
+  if (hp_current_block_u16(bytes, value_start, val_size, block_start, word_count,
+                           HP_REG_INVERTER_ALARM_1, &alarm_1) &&
+      hp_current_block_u16(bytes, value_start, val_size, block_start, word_count,
+                           HP_REG_INVERTER_ALARM_2, &alarm_2) &&
+      hp_current_block_u16(bytes, value_start, val_size, block_start, word_count,
+                           HP_REG_INVERTER_ALARM_3, &alarm_3)) {
+    id(inverter_alarm_1_raw).publish_state(static_cast<float>(alarm_1));
+    id(inverter_alarm_2_raw).publish_state(static_cast<float>(alarm_2));
+    id(inverter_alarm_3_raw).publish_state(static_cast<float>(alarm_3));
+    const std::string alarms = hp_inverter_alarm_names(alarm_1, alarm_2, alarm_3);
+    id(inverter_active_alarms).publish_state(alarms);
+    snprintf(field, sizeof(field), "alarms=%04X/%04X/%04X", alarm_1, alarm_2, alarm_3);
+    hp_append_current_field(summary, field);
+  }
 
   if (hp_current_block_u16(bytes, value_start, val_size, block_start, word_count, HP_REG_PV1_VOLTAGE, &u16)) {
     const float value = static_cast<float>(u16) * 0.1f;
@@ -1524,6 +1763,12 @@ static inline std::string hp_publish_current_inverter_registers(uint8_t device_i
     snprintf(field, sizeof(field), "status=%s", status);
     hp_append_current_field(summary, field);
   }
+  if (hp_current_block_u16(bytes, value_start, val_size, block_start, word_count,
+                           HP_REG_INVERTER_FAULT_CODE, &u16)) {
+    id(inverter_fault_code).publish_state(static_cast<float>(u16));
+    snprintf(field, sizeof(field), "fault_code=%u", u16);
+    hp_append_current_field(summary, field);
+  }
 
   if (hp_current_block_u32(bytes, value_start, val_size, block_start, word_count, HP_REG_STARTUP_TIME, &u32)) {
     char timestamp[48];
@@ -1585,6 +1830,91 @@ static inline std::string hp_publish_current_battery_registers(uint8_t device_id
   int16_t i16 = 0;
   uint32_t u32 = 0;
   int32_t i32 = 0;
+
+  if (hp_current_block_u16(bytes, value_start, val_size, block_start, word_count,
+                           HP_REG_BATTERY_RUNNING_STATUS, &u16)) {
+    const std::string status = hp_named_u16(u16, hp_battery_running_status_name(u16));
+    id(battery_running_status).publish_state(status);
+    snprintf(field, sizeof(field), "battery_status=%s", status.c_str());
+    hp_append_current_field(summary, field);
+  }
+  if (hp_current_block_u16(bytes, value_start, val_size, block_start, word_count,
+                           HP_REG_BATTERY_WORKING_MODE, &u16)) {
+    const std::string mode = hp_named_u16(u16, hp_battery_working_mode_name(u16));
+    id(battery_working_mode).publish_state(mode);
+    snprintf(field, sizeof(field), "battery_mode=%s", mode.c_str());
+    hp_append_current_field(summary, field);
+  }
+  if (hp_current_block_u32(bytes, value_start, val_size, block_start, word_count,
+                           HP_REG_BATTERY_MAXIMUM_CHARGE_POWER, &u32)) {
+    id(inverter_battery_maximum_charge_power).publish_state(static_cast<float>(u32));
+    snprintf(field, sizeof(field), "battery_max_charge=%luW", static_cast<unsigned long>(u32));
+    hp_append_current_field(summary, field);
+  }
+  if (hp_current_block_u32(bytes, value_start, val_size, block_start, word_count,
+                           HP_REG_BATTERY_MAXIMUM_DISCHARGE_POWER, &u32)) {
+    id(inverter_battery_maximum_discharge_power).publish_state(static_cast<float>(u32));
+    snprintf(field, sizeof(field), "battery_max_discharge=%luW", static_cast<unsigned long>(u32));
+    hp_append_current_field(summary, field);
+  }
+  if (hp_current_block_u16(bytes, value_start, val_size, block_start, word_count,
+                           HP_REG_BATTERY_END_OF_CHARGE_SOC, &u16)) {
+    const float value = static_cast<float>(u16) * HP_BATTERY_SOC_SCALE;
+    id(inverter_battery_end_of_charge_soc).publish_state(value);
+    snprintf(field, sizeof(field), "battery_end_charge_soc=%.1f%%", value);
+    hp_append_current_field(summary, field);
+  }
+  if (hp_current_block_u16(bytes, value_start, val_size, block_start, word_count,
+                           HP_REG_BATTERY_END_OF_DISCHARGE_SOC, &u16)) {
+    const float value = static_cast<float>(u16) * HP_BATTERY_SOC_SCALE;
+    id(inverter_battery_end_of_discharge_soc).publish_state(value);
+    snprintf(field, sizeof(field), "battery_end_discharge_soc=%.1f%%", value);
+    hp_append_current_field(summary, field);
+  }
+  if (hp_current_block_u16(bytes, value_start, val_size, block_start, word_count,
+                           HP_REG_BATTERY_FORCED_PERIOD, &u16)) {
+    id(inverter_battery_forced_charge_discharge_period).publish_state(static_cast<float>(u16));
+    snprintf(field, sizeof(field), "battery_forced_period=%umin", u16);
+    hp_append_current_field(summary, field);
+  }
+  if (hp_current_block_i32(bytes, value_start, val_size, block_start, word_count,
+                           HP_REG_BATTERY_FORCED_POWER, &i32)) {
+    id(inverter_battery_forced_charge_discharge_power).publish_state(static_cast<float>(i32));
+    snprintf(field, sizeof(field), "battery_forced_power=%ldW", static_cast<long>(i32));
+    hp_append_current_field(summary, field);
+  }
+  if (hp_current_block_u16(bytes, value_start, val_size, block_start, word_count,
+                           HP_REG_BATTERY_WORKING_MODE_SETTING, &u16)) {
+    const std::string mode = hp_named_u16(u16, hp_battery_working_mode_setting_name(u16));
+    id(battery_working_mode_setting).publish_state(mode);
+    snprintf(field, sizeof(field), "battery_mode_setting=%s", mode.c_str());
+    hp_append_current_field(summary, field);
+  }
+  if (hp_current_block_u16(bytes, value_start, val_size, block_start, word_count,
+                           HP_REG_BATTERY_CHARGE_FROM_GRID, &u16)) {
+    const char *name = u16 == 0 ? "Disabled" : u16 == 1 ? "Enabled" : nullptr;
+    const std::string enabled = hp_named_u16(u16, name);
+    id(battery_charge_from_grid).publish_state(enabled);
+    snprintf(field, sizeof(field), "battery_charge_from_grid=%s", enabled.c_str());
+    hp_append_current_field(summary, field);
+  }
+  if (hp_current_block_u16(bytes, value_start, val_size, block_start, word_count,
+                           HP_REG_BATTERY_GRID_CHARGE_CUTOFF_SOC, &u16)) {
+    const float value = static_cast<float>(u16) * HP_BATTERY_SOC_SCALE;
+    id(inverter_battery_grid_charge_cutoff_soc).publish_state(value);
+    snprintf(field, sizeof(field), "battery_grid_cutoff_soc=%.1f%%", value);
+    hp_append_current_field(summary, field);
+  }
+  const std::string tou_periods =
+      hp_format_battery_tou_periods(bytes, value_start, val_size, block_start, word_count);
+  if (!tou_periods.empty()) {
+    id(battery_tou_schedule).publish_state(tou_periods);
+    uint16_t period_count = 0;
+    hp_current_block_u16(bytes, value_start, val_size, block_start, word_count,
+                         HP_REG_BATTERY_TOU_PERIODS, &period_count);
+    snprintf(field, sizeof(field), "battery_tou_periods=%u", period_count);
+    hp_append_current_field(summary, field);
+  }
 
   if (hp_current_block_i32(bytes, value_start, val_size, block_start, word_count, HP_TAG_BATTERY_POWER, &i32)) {
     id(inverter_battery_power).publish_state(static_cast<float>(i32));
@@ -1968,6 +2298,26 @@ static inline std::string hp_format_current_data_tlv(uint8_t device_id, const st
       return line;
     }
     const uint16_t word = hp_u16be(bytes[pos + 3], bytes[pos + 4]);
+    if (tag == HP_REG_BATTERY_RUNNING_STATUS) {
+      const std::string status = hp_named_u16(word, hp_battery_running_status_name(word));
+      snprintf(line, sizeof(line), "tag=0x%04X battery_status=%s", tag, status.c_str());
+      return line;
+    }
+    if (tag == HP_REG_BATTERY_WORKING_MODE) {
+      const std::string mode = hp_named_u16(word, hp_battery_working_mode_name(word));
+      snprintf(line, sizeof(line), "tag=0x%04X battery_mode=%s", tag, mode.c_str());
+      return line;
+    }
+    if (tag == HP_REG_BATTERY_WORKING_MODE_SETTING) {
+      const std::string mode = hp_named_u16(word, hp_battery_working_mode_setting_name(word));
+      snprintf(line, sizeof(line), "tag=0x%04X battery_mode_setting=%s", tag, mode.c_str());
+      return line;
+    }
+    if (tag == HP_REG_BATTERY_CHARGE_FROM_GRID) {
+      snprintf(line, sizeof(line), "tag=0x%04X battery_charge_from_grid=%s", tag,
+               word == 0 ? "Disabled" : word == 1 ? "Enabled" : "Unknown");
+      return line;
+    }
     snprintf(line, sizeof(line), "tag=0x%04X words=1 value=0x%04X(%u)", tag, word, word);
     return line;
   }

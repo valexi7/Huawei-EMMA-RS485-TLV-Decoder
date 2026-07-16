@@ -118,9 +118,10 @@ Override `huawei_rx_light_id` if your light uses another ID, and
 
 ### Forwarding decoded frames
 
-The package keeps `Huawei FC41 Decoded Frame` as a diagnostic text sensor and
-emits each decoded frame at INFO level with the dedicated logger tag
-`huawei_prop_fc41_frame`. The message has three pipe-delimited fields:
+The package keeps `ZZ Reverse Engineering - FC41 Decoded Frame` as a diagnostic
+text sensor and emits each decoded frame at INFO level with the dedicated
+logger tag `huawei_prop_fc41_frame`. The message has three pipe-delimited
+fields:
 
 ```text
 <summary> | <semicolon-separated decoded tags, or (none)> | <space-separated raw hex>
@@ -214,16 +215,36 @@ python tools/analyze_huawei_csv.py huawei-rs485-logger.csv \
 
 The analyzer validates CRCs and `0x35` block alignment, prints the latest known
 battery/inverter values, and ranks three-value register candidates against
-inverter active power. It accepts both raw hexadecimal frame cells and the
-logger's `{summary=..., raw=...}` cell format.
+inverter active power. It accepts raw hexadecimal frame cells, JSON logger
+exports containing a `raw` field, and the logger's `{summary=..., raw=...}`
+cell format. Date-only exports use the inverter bus clock as their timeline
+anchor instead of discarding otherwise valid rows.
 
-The package exposes discovered-tag text sensors for known device IDs 0, 2, and
-12, plus a shared-tag sensor. The inverter catalog has ten pages; the EMMA and
-power-meter catalogs have five pages each. Each entry includes its compact
-latest raw value, such as `7D5F=00000382`. Tags belonging to other device IDs are grouped
-on additional pages, for example `0x80: 7530=value, 7540=value`. A tag seen
-under multiple device IDs is logged once per device with its decoded sample,
-making possible cross-device meanings visible without flooding the log.
+The inverter device stream also publishes the decoded battery configuration
+and alarm fields observed in FC41 current-data blocks:
+
+- battery running status, live working mode, configured working mode, and
+  charge-from-grid state;
+- maximum charge/discharge power, end-of-charge/end-of-discharge SOC, grid
+  charge cutoff SOC, and forced charge/discharge period and power;
+- LUNA2000 TOU periods from register block `0xB897`, formatted as readable
+  charge/discharge time ranges and active weekdays;
+- inverter fault code, three raw alarm words, and a combined active-alarm text
+  sensor with decoded alarm names.
+
+The live working-mode sensor distinguishes maximum self-consumption from local
+or remote-scheduled TOU modes when those register windows are broadcast. The
+TOU schedule entity remains unchanged until the complete 43-register `0xB897`
+block appears on the bus.
+
+The `ZZ Reverse Engineering` diagnostics expose discovered-tag text sensors
+for known device IDs 0, 2, and 12, plus a shared-tag sensor. The inverter
+catalog has ten pages; the EMMA and power-meter catalogs have five pages each.
+Each entry includes its compact latest raw value, such as `7D5F=00000382`. Tags
+belonging to other device IDs are grouped on additional pages, for example
+`0x80: 7530=value, 7540=value`. A tag seen under multiple device IDs is logged
+once per device with its decoded sample, making possible cross-device meanings
+visible without flooding the log.
 EMMA entities are currently marked `internal` because recent captures have not
 contained sustained online EMMA traffic.
 Tags with established semantics are omitted from the per-device discovered

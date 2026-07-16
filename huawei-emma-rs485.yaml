@@ -266,6 +266,54 @@ text_sensor:
       return std::nullopt;
 
   - platform: template
+    id: inverter_active_alarms
+    name: "Inverter Active Alarms"
+    icon: mdi:alert
+    entity_category: diagnostic
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: battery_running_status
+    name: "Battery Running Status"
+    icon: mdi:battery-heart-variant
+    entity_category: diagnostic
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: battery_working_mode
+    name: "Battery Working Mode"
+    icon: mdi:battery-sync
+    entity_category: diagnostic
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: battery_working_mode_setting
+    name: "Battery Working Mode Setting"
+    icon: mdi:battery-cog
+    entity_category: diagnostic
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: battery_charge_from_grid
+    name: "Battery Charge From Grid"
+    icon: mdi:transmission-tower-import
+    entity_category: diagnostic
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: battery_tou_schedule
+    name: "Battery TOU Schedule"
+    icon: mdi:battery-clock
+    entity_category: diagnostic
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
     id: emma_serial_number
     internal: true
     name: "EMMA Serial Number"
@@ -575,6 +623,42 @@ sensor:
       return std::nullopt;
 
   - platform: template
+    id: inverter_fault_code
+    name: "Inverter Fault Code"
+    icon: mdi:alert-circle-outline
+    entity_category: diagnostic
+    accuracy_decimals: 0
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_alarm_1_raw
+    name: "Inverter Alarm 1 Raw"
+    icon: mdi:alert-outline
+    entity_category: diagnostic
+    accuracy_decimals: 0
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_alarm_2_raw
+    name: "Inverter Alarm 2 Raw"
+    icon: mdi:alert-outline
+    entity_category: diagnostic
+    accuracy_decimals: 0
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_alarm_3_raw
+    name: "Inverter Alarm 3 Raw"
+    icon: mdi:alert-outline
+    entity_category: diagnostic
+    accuracy_decimals: 0
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
     id: inverter_phase_a_voltage
     name: "Inverter Phase A Voltage"
     icon: mdi:sine-wave
@@ -746,6 +830,82 @@ sensor:
     state_class: total
     unit_of_measurement: kWh
     accuracy_decimals: 2
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_battery_maximum_charge_power
+    name: "Battery Maximum Charge Power"
+    icon: mdi:battery-arrow-up
+    device_class: power
+    entity_category: diagnostic
+    unit_of_measurement: W
+    accuracy_decimals: 0
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_battery_maximum_discharge_power
+    name: "Battery Maximum Discharge Power"
+    icon: mdi:battery-arrow-down
+    device_class: power
+    entity_category: diagnostic
+    unit_of_measurement: W
+    accuracy_decimals: 0
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_battery_end_of_charge_soc
+    name: "Battery End-of-Charge SOC"
+    icon: mdi:battery-charging-100
+    device_class: battery
+    entity_category: diagnostic
+    unit_of_measurement: "%"
+    accuracy_decimals: 1
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_battery_end_of_discharge_soc
+    name: "Battery End-of-Discharge SOC"
+    icon: mdi:battery-alert-variant-outline
+    device_class: battery
+    entity_category: diagnostic
+    unit_of_measurement: "%"
+    accuracy_decimals: 1
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_battery_grid_charge_cutoff_soc
+    name: "Battery Grid Charge Cutoff SOC"
+    icon: mdi:battery-charging-high
+    device_class: battery
+    entity_category: diagnostic
+    unit_of_measurement: "%"
+    accuracy_decimals: 1
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_battery_forced_charge_discharge_period
+    name: "Battery Forced Charge-Discharge Period"
+    icon: mdi:timer-outline
+    entity_category: diagnostic
+    unit_of_measurement: min
+    accuracy_decimals: 0
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_battery_forced_charge_discharge_power
+    name: "Battery Forced Charge-Discharge Power"
+    icon: mdi:battery-sync
+    device_class: power
+    entity_category: diagnostic
+    unit_of_measurement: W
+    accuracy_decimals: 0
     lambda: |-
       return std::nullopt;
 
