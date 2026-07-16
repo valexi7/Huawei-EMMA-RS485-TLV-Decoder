@@ -52,7 +52,7 @@ script:
 text_sensor:
   - platform: template
     id: huawei41_device_ids
-    name: "Discovered FC41 Device IDs"
+    name: "ZZ Reverse Engineering - FC41 Device IDs"
     icon: mdi:identifier
     entity_category: diagnostic
     lambda: |-
@@ -61,7 +61,7 @@ text_sensor:
   - platform: template
     id: emma_discovered_tags_1
     internal: true
-    name: "EMMA Discovered FC41 Tags 1"
+    name: "ZZ Reverse Engineering - EMMA FC41 Tags 1"
     icon: mdi:tag-multiple
     entity_category: diagnostic
     lambda: |-
@@ -70,7 +70,7 @@ text_sensor:
   - platform: template
     id: emma_discovered_tags_2
     internal: true
-    name: "EMMA Discovered FC41 Tags 2"
+    name: "ZZ Reverse Engineering - EMMA FC41 Tags 2"
     icon: mdi:tag-multiple
     entity_category: diagnostic
     lambda: |-
@@ -79,7 +79,7 @@ text_sensor:
   - platform: template
     id: emma_discovered_tags_3
     internal: true
-    name: "EMMA Discovered FC41 Tags 3"
+    name: "ZZ Reverse Engineering - EMMA FC41 Tags 3"
     icon: mdi:tag-multiple
     entity_category: diagnostic
     lambda: |-
@@ -88,7 +88,7 @@ text_sensor:
   - platform: template
     id: emma_discovered_tags_4
     internal: true
-    name: "EMMA Discovered FC41 Tags 4"
+    name: "ZZ Reverse Engineering - EMMA FC41 Tags 4"
     icon: mdi:tag-multiple
     entity_category: diagnostic
     lambda: |-
@@ -97,7 +97,7 @@ text_sensor:
   - platform: template
     id: emma_discovered_tags_5
     internal: true
-    name: "EMMA Discovered FC41 Tags 5"
+    name: "ZZ Reverse Engineering - EMMA FC41 Tags 5"
     icon: mdi:tag-multiple
     entity_category: diagnostic
     lambda: |-
@@ -105,7 +105,7 @@ text_sensor:
 
   - platform: template
     id: meter_discovered_tags_1
-    name: "Power Meter Discovered FC41 Tags 1"
+    name: "ZZ Reverse Engineering - Power Meter FC41 Tags 1"
     icon: mdi:tag-multiple
     entity_category: diagnostic
     lambda: |-
@@ -113,7 +113,7 @@ text_sensor:
 
   - platform: template
     id: meter_discovered_tags_2
-    name: "Power Meter Discovered FC41 Tags 2"
+    name: "ZZ Reverse Engineering - Power Meter FC41 Tags 2"
     icon: mdi:tag-multiple
     entity_category: diagnostic
     lambda: |-
@@ -121,7 +121,7 @@ text_sensor:
 
   - platform: template
     id: meter_discovered_tags_3
-    name: "Power Meter Discovered FC41 Tags 3"
+    name: "ZZ Reverse Engineering - Power Meter FC41 Tags 3"
     icon: mdi:tag-multiple
     entity_category: diagnostic
     lambda: |-
@@ -129,7 +129,7 @@ text_sensor:
 
   - platform: template
     id: meter_discovered_tags_4
-    name: "Power Meter Discovered FC41 Tags 4"
+    name: "ZZ Reverse Engineering - Power Meter FC41 Tags 4"
     icon: mdi:tag-multiple
     entity_category: diagnostic
     lambda: |-
@@ -137,7 +137,7 @@ text_sensor:
 
   - platform: template
     id: meter_discovered_tags_5
-    name: "Power Meter Discovered FC41 Tags 5"
+    name: "ZZ Reverse Engineering - Power Meter FC41 Tags 5"
     icon: mdi:tag-multiple
     entity_category: diagnostic
     lambda: |-
@@ -145,7 +145,7 @@ text_sensor:
 
   - platform: template
     id: inverter_discovered_tags_1
-    name: "Inverter Discovered FC41 Tags 1"
+    name: "ZZ Reverse Engineering - Inverter FC41 Tags 1"
     icon: mdi:tag-multiple
     entity_category: diagnostic
     lambda: |-
@@ -153,7 +153,7 @@ text_sensor:
 
   - platform: template
     id: inverter_discovered_tags_2
-    name: "Inverter Discovered FC41 Tags 2"
+    name: "ZZ Reverse Engineering - Inverter FC41 Tags 2"
     icon: mdi:tag-multiple
     entity_category: diagnostic
     lambda: |-
@@ -161,7 +161,7 @@ text_sensor:
 
   - platform: template
     id: inverter_discovered_tags_3
-    name: "Inverter Discovered FC41 Tags 3"
+    name: "ZZ Reverse Engineering - Inverter FC41 Tags 3"
     icon: mdi:tag-multiple
     entity_category: diagnostic
     lambda: |-
@@ -169,7 +169,7 @@ text_sensor:
 
   - platform: template
     id: inverter_discovered_tags_4
-    name: "Inverter Discovered FC41 Tags 4"
+    name: "ZZ Reverse Engineering - Inverter FC41 Tags 4"
     icon: mdi:tag-multiple
     entity_category: diagnostic
     lambda: |-
@@ -177,7 +177,7 @@ text_sensor:
 
   - platform: template
     id: inverter_discovered_tags_5
-    name: "Inverter Discovered FC41 Tags 5"
+    name: "ZZ Reverse Engineering - Inverter FC41 Tags 5"
     icon: mdi:tag-multiple
     entity_category: diagnostic
     lambda: |-
@@ -185,7 +185,7 @@ text_sensor:
 
   - platform: template
     id: huawei41_shared_tags
-    name: "Shared FC41 Tags Across Device IDs"
+    name: "ZZ Reverse Engineering - Shared FC41 Tags"
     icon: mdi:tag-arrow-right
     entity_category: diagnostic
     lambda: |-
@@ -193,7 +193,7 @@ text_sensor:
 
   - platform: template
     id: huawei41_unknown_device_tags_1
-    name: "Unknown FC41 Device Tags 1"
+    name: "ZZ Reverse Engineering - Unknown FC41 Device Tags 1"
     icon: mdi:tag-question
     entity_category: diagnostic
     lambda: |-
@@ -201,7 +201,7 @@ text_sensor:
 
   - platform: template
     id: huawei41_unknown_device_tags_2
-    name: "Unknown FC41 Device Tags 2"
+    name: "ZZ Reverse Engineering - Unknown FC41 Device Tags 2"
     icon: mdi:tag-question
     entity_category: diagnostic
     lambda: |-
@@ -209,7 +209,7 @@ text_sensor:
 
   - platform: template
     id: huawei41_unknown_device_tags_3
-    name: "Unknown FC41 Device Tags 3"
+    name: "ZZ Reverse Engineering - Unknown FC41 Device Tags 3"
     icon: mdi:tag-question
     entity_category: diagnostic
     lambda: |-
@@ -217,7 +217,7 @@ text_sensor:
 
   - platform: template
     id: huawei41_unknown_device_tags_4
-    name: "Unknown FC41 Device Tags 4"
+    name: "ZZ Reverse Engineering - Unknown FC41 Device Tags 4"
     icon: mdi:tag-question
     entity_category: diagnostic
     lambda: |-
@@ -225,7 +225,7 @@ text_sensor:
 
   - platform: template
     id: huawei41_unknown_device_tags_5
-    name: "Unknown FC41 Device Tags 5"
+    name: "ZZ Reverse Engineering - Unknown FC41 Device Tags 5"
     icon: mdi:tag-question
     entity_category: diagnostic
     lambda: |-
@@ -233,7 +233,7 @@ text_sensor:
 
   - platform: template
     id: huawei41_unknown_device_tags_6
-    name: "Unknown FC41 Device Tags 6"
+    name: "ZZ Reverse Engineering - Unknown FC41 Device Tags 6"
     icon: mdi:tag-question
     entity_category: diagnostic
     lambda: |-
@@ -243,7 +243,7 @@ text_sensor:
   # do not update this entity or emit a huawei_prop_fc41_frame export log.
   - platform: template
     id: huawei41_decoded_frame_export
-    name: "Huawei FC41 Decoded Frame"
+    name: "ZZ Reverse Engineering - FC41 Decoded Frame"
     icon: mdi:code-json
     entity_category: diagnostic
     lambda: |-
@@ -300,7 +300,7 @@ text_sensor:
 
   - platform: template
     id: inverter_discovered_tags_6
-    name: "Inverter Discovered FC41 Tags 6"
+    name: "ZZ Reverse Engineering - Inverter FC41 Tags 6"
     icon: mdi:tag-multiple
     entity_category: diagnostic
     lambda: |-
@@ -308,7 +308,7 @@ text_sensor:
 
   - platform: template
     id: inverter_discovered_tags_7
-    name: "Inverter Discovered FC41 Tags 7"
+    name: "ZZ Reverse Engineering - Inverter FC41 Tags 7"
     icon: mdi:tag-multiple
     entity_category: diagnostic
     lambda: |-
@@ -316,7 +316,7 @@ text_sensor:
 
   - platform: template
     id: inverter_discovered_tags_8
-    name: "Inverter Discovered FC41 Tags 8"
+    name: "ZZ Reverse Engineering - Inverter FC41 Tags 8"
     icon: mdi:tag-multiple
     entity_category: diagnostic
     lambda: |-
@@ -324,7 +324,7 @@ text_sensor:
 
   - platform: template
     id: inverter_discovered_tags_9
-    name: "Inverter Discovered FC41 Tags 9"
+    name: "ZZ Reverse Engineering - Inverter FC41 Tags 9"
     icon: mdi:tag-multiple
     entity_category: diagnostic
     lambda: |-
@@ -332,7 +332,7 @@ text_sensor:
 
   - platform: template
     id: inverter_discovered_tags_10
-    name: "Inverter Discovered FC41 Tags 10"
+    name: "ZZ Reverse Engineering - Inverter FC41 Tags 10"
     icon: mdi:tag-multiple
     entity_category: diagnostic
     lambda: |-
