@@ -545,6 +545,106 @@ sensor:
     lambda: |-
       return std::nullopt;
 
+  # Mirrored external-meter values carried by inverter device ID 12 (0x0C).
+  # Phase voltages above remain sourced from the faster device ID 2 reports.
+  - platform: template
+    id: meter_phase_a_current
+    name: "Power Meter Phase A Current"
+    icon: mdi:current-ac
+    device_class: current
+    state_class: measurement
+    unit_of_measurement: A
+    accuracy_decimals: 2
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: meter_phase_b_current
+    name: "Power Meter Phase B Current"
+    icon: mdi:current-ac
+    device_class: current
+    state_class: measurement
+    unit_of_measurement: A
+    accuracy_decimals: 2
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: meter_phase_c_current
+    name: "Power Meter Phase C Current"
+    icon: mdi:current-ac
+    device_class: current
+    state_class: measurement
+    unit_of_measurement: A
+    accuracy_decimals: 2
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: meter_active_power
+    name: "Power Meter Active Power"
+    icon: mdi:transmission-tower
+    device_class: power
+    state_class: measurement
+    unit_of_measurement: W
+    accuracy_decimals: 0
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: meter_reactive_power
+    name: "Power Meter Reactive Power"
+    icon: mdi:flash
+    device_class: reactive_power
+    state_class: measurement
+    unit_of_measurement: var
+    accuracy_decimals: 0
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: meter_power_factor
+    name: "Power Meter Power Factor"
+    icon: mdi:angle-acute
+    device_class: power_factor
+    state_class: measurement
+    accuracy_decimals: 3
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: meter_phase_a_power
+    name: "Power Meter Phase A Active Power"
+    icon: mdi:transmission-tower
+    device_class: power
+    state_class: measurement
+    unit_of_measurement: W
+    accuracy_decimals: 0
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: meter_phase_b_power
+    name: "Power Meter Phase B Active Power"
+    icon: mdi:transmission-tower
+    device_class: power
+    state_class: measurement
+    unit_of_measurement: W
+    accuracy_decimals: 0
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: meter_phase_c_power
+    name: "Power Meter Phase C Active Power"
+    icon: mdi:transmission-tower
+    device_class: power
+    state_class: measurement
+    unit_of_measurement: W
+    accuracy_decimals: 0
+    lambda: |-
+      return std::nullopt;
+
   # Inverter — device ID 12 (0x0C), typically 0x35 data frames
   - platform: template
     id: inverter_pv1_voltage
@@ -616,6 +716,7 @@ sensor:
     id: inverter_insulation_resistance
     name: "Inverter Insulation Resistance"
     icon: mdi:omega
+    entity_category: diagnostic
     state_class: measurement
     unit_of_measurement: MΩ
     accuracy_decimals: 3
@@ -828,6 +929,28 @@ sensor:
     icon: mdi:solar-power
     device_class: energy
     state_class: total
+    unit_of_measurement: kWh
+    accuracy_decimals: 2
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_daily_dc_energy_yield
+    name: "Inverter Daily DC Energy Yield"
+    icon: mdi:solar-panel
+    device_class: energy
+    state_class: total
+    unit_of_measurement: kWh
+    accuracy_decimals: 2
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: inverter_mppt1_total_dc_energy_yield
+    name: "Inverter MPPT1 Total DC Energy Yield"
+    icon: mdi:solar-panel
+    device_class: energy
+    state_class: total_increasing
     unit_of_measurement: kWh
     accuracy_decimals: 2
     lambda: |-

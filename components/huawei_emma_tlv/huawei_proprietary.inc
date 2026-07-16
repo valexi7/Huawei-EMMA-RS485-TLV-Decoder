@@ -26,6 +26,8 @@ static constexpr uint16_t HP_TAG_REACTIVE_POWER = 0x7D66;   // 0x35 words=2, var
 static constexpr uint16_t HP_TAG_INVERTER_CANDIDATE_93C5 = 0x93C5;  // observed i32; semantics unknown
 static constexpr uint16_t HP_TAG_TOTAL_YIELD = 0x7D6A;      // 0x35 words=2 u32, lifetime kWh (×0.01)
 static constexpr uint16_t HP_TAG_DAILY_ENERGY = 0x7D72;     // u32 inside a bounded 0x35 register window (×0.01)
+static constexpr uint16_t HP_TAG_DAILY_DC_ENERGY_YIELD = 0x7D80;  // u32, current-day DC yield (×0.01 kWh)
+static constexpr uint16_t HP_TAG_MPPT1_TOTAL_DC_ENERGY_YIELD = 0x7DD4;  // u32, MPPT1 lifetime DC yield (×0.01 kWh)
 static constexpr uint16_t HP_REG_PV1_VOLTAGE = 0x7D10;
 static constexpr uint16_t HP_REG_PV1_CURRENT = 0x7D11;
 static constexpr uint16_t HP_REG_INPUT_POWER = 0x7D40;
@@ -51,11 +53,21 @@ static constexpr uint16_t HP_REG_SHUTDOWN_TIME = 0x7D5D;
 static constexpr uint16_t HP_REG_INVERTER_ALARM_1 = 0x7D08;
 static constexpr uint16_t HP_REG_INVERTER_ALARM_2 = 0x7D09;
 static constexpr uint16_t HP_REG_INVERTER_ALARM_3 = 0x7D0A;
+static constexpr uint16_t HP_REG_METER_PHASE_A_CURRENT = 0x90F3;
+static constexpr uint16_t HP_REG_METER_PHASE_B_CURRENT = 0x90F5;
+static constexpr uint16_t HP_REG_METER_PHASE_C_CURRENT = 0x90F7;
+static constexpr uint16_t HP_REG_METER_ACTIVE_POWER = 0x90F9;
+static constexpr uint16_t HP_REG_METER_REACTIVE_POWER = 0x90FB;
+static constexpr uint16_t HP_REG_METER_POWER_FACTOR = 0x90FD;
+static constexpr uint16_t HP_REG_METER_PHASE_A_ACTIVE_POWER = 0x910C;
+static constexpr uint16_t HP_REG_METER_PHASE_B_ACTIVE_POWER = 0x910E;
+static constexpr uint16_t HP_REG_METER_PHASE_C_ACTIVE_POWER = 0x9110;
 static constexpr uint16_t HP_TAG_INVERTER_CAPABILITIES = 0x7574;
 static constexpr uint16_t HP_REG_RATED_POWER = 0x7579;
 static constexpr uint16_t HP_TAG_BATTERY_CHARGED_TODAY = 0x9097;   // u32, kWh (x0.01)
 static constexpr uint16_t HP_TAG_BATTERY_DISCHARGED_TODAY = 0x9099;  // u32, kWh (x0.01)
-static constexpr uint16_t HP_TAG_BATTERY_DISCHARGED_TODAY_LEGACY = 0x9398;
+static constexpr uint16_t HP_TAG_BATTERY_CHARGED_TODAY_LEGACY = 0x9398;
+static constexpr uint16_t HP_TAG_BATTERY_DISCHARGED_TODAY_LEGACY = 0x939A;
 static constexpr uint16_t HP_TAG_BATTERY_TOTAL_CHARGE = 0x9394;  // legacy/direct u32, kWh (x0.01)
 static constexpr uint16_t HP_TAG_BATTERY_TOTAL_BLOCK = 0x90CA;
 static constexpr uint16_t HP_TAG_BATTERY_TOTAL_DISCHARGE = 0x90CC;
@@ -113,6 +125,7 @@ static constexpr float HP_ENERGY_YIELD_SCALE = 0.01f;
 static constexpr float HP_LINE_VOLTAGE_SCALE = 0.1f;
 static constexpr float HP_PHASE_VOLTAGE_SCALE = 0.1f;
 static constexpr float HP_PHASE_CURRENT_SCALE = 0.001f;
+static constexpr float HP_METER_PHASE_CURRENT_SCALE = 0.01f;
 static constexpr float HP_GRID_FREQUENCY_SCALE = 0.01f;
 static constexpr float HP_TEMPERATURE_SCALE = 0.1f;
 static constexpr float HP_BATTERY_VOLTAGE_SCALE = 0.1f;
@@ -248,6 +261,20 @@ static inline void hp_publish_daily_energy(uint8_t device_id, uint32_t raw_wh) {
     return;
   const float kwh = static_cast<float>(raw_wh) * HP_ENERGY_YIELD_SCALE;
   id(inverter_daily_energy).publish_state(kwh);
+}
+
+static inline void hp_publish_daily_dc_energy_yield(uint8_t device_id, uint32_t raw_value) {
+  if (device_id != HP_DEV_INVERTER)
+    return;
+  id(inverter_daily_dc_energy_yield).publish_state(
+      static_cast<float>(raw_value) * HP_ENERGY_YIELD_SCALE);
+}
+
+static inline void hp_publish_mppt1_total_dc_energy_yield(uint8_t device_id, uint32_t raw_value) {
+  if (device_id != HP_DEV_INVERTER)
+    return;
+  id(inverter_mppt1_total_dc_energy_yield).publish_state(
+      static_cast<float>(raw_value) * HP_ENERGY_YIELD_SCALE);
 }
 
 static inline void hp_try_publish_bus_clock_value(uint8_t device_id, uint16_t tag,
@@ -1066,6 +1093,15 @@ static inline bool hp_tag_has_established_semantics(uint8_t device_id, uint16_t 
     case HP_REG_INVERTER_ALARM_1:
     case HP_REG_INVERTER_ALARM_2:
     case HP_REG_INVERTER_ALARM_3:
+    case HP_REG_METER_PHASE_A_CURRENT:
+    case HP_REG_METER_PHASE_B_CURRENT:
+    case HP_REG_METER_PHASE_C_CURRENT:
+    case HP_REG_METER_ACTIVE_POWER:
+    case HP_REG_METER_REACTIVE_POWER:
+    case HP_REG_METER_POWER_FACTOR:
+    case HP_REG_METER_PHASE_A_ACTIVE_POWER:
+    case HP_REG_METER_PHASE_B_ACTIVE_POWER:
+    case HP_REG_METER_PHASE_C_ACTIVE_POWER:
     case HP_REG_STARTUP_TIME:
     case HP_REG_SHUTDOWN_TIME:
     case HP_TAG_LINE_VOLTAGE:
@@ -1077,7 +1113,10 @@ static inline bool hp_tag_has_established_semantics(uint8_t device_id, uint16_t 
     case HP_TAG_REACTIVE_POWER:
     case HP_TAG_TOTAL_YIELD:
     case HP_TAG_DAILY_ENERGY:
+    case HP_TAG_DAILY_DC_ENERGY_YIELD:
+    case HP_TAG_MPPT1_TOTAL_DC_ENERGY_YIELD:
     case HP_TAG_BATTERY_CHARGED_TODAY:
+    case HP_TAG_BATTERY_CHARGED_TODAY_LEGACY:
     case HP_TAG_BATTERY_DISCHARGED_TODAY:
     case HP_TAG_BATTERY_DISCHARGED_TODAY_LEGACY:
     case HP_TAG_BATTERY_TOTAL_CHARGE:
@@ -1628,6 +1667,68 @@ static inline std::string hp_publish_current_inverter_registers(uint8_t device_i
     hp_append_current_field(summary, field);
   }
 
+  // The inverter stream mirrors the external power meter's standard register
+  // block. Publish these values as power-meter entities even though FC41
+  // device 0x0C carries them; phase voltages continue to come from device 0x02.
+  if (hp_current_block_i32(bytes, value_start, val_size, block_start, word_count,
+                           HP_REG_METER_PHASE_A_CURRENT, &i32)) {
+    const float value = static_cast<float>(i32) * HP_METER_PHASE_CURRENT_SCALE;
+    id(meter_phase_a_current).publish_state(value);
+    snprintf(field, sizeof(field), "meter_phase_A_current=%.2fA", value);
+    hp_append_current_field(summary, field);
+  }
+  if (hp_current_block_i32(bytes, value_start, val_size, block_start, word_count,
+                           HP_REG_METER_PHASE_B_CURRENT, &i32)) {
+    const float value = static_cast<float>(i32) * HP_METER_PHASE_CURRENT_SCALE;
+    id(meter_phase_b_current).publish_state(value);
+    snprintf(field, sizeof(field), "meter_phase_B_current=%.2fA", value);
+    hp_append_current_field(summary, field);
+  }
+  if (hp_current_block_i32(bytes, value_start, val_size, block_start, word_count,
+                           HP_REG_METER_PHASE_C_CURRENT, &i32)) {
+    const float value = static_cast<float>(i32) * HP_METER_PHASE_CURRENT_SCALE;
+    id(meter_phase_c_current).publish_state(value);
+    snprintf(field, sizeof(field), "meter_phase_C_current=%.2fA", value);
+    hp_append_current_field(summary, field);
+  }
+  if (hp_current_block_i32(bytes, value_start, val_size, block_start, word_count,
+                           HP_REG_METER_ACTIVE_POWER, &i32)) {
+    id(meter_active_power).publish_state(static_cast<float>(i32));
+    snprintf(field, sizeof(field), "meter_active_P=%ldW", static_cast<long>(i32));
+    hp_append_current_field(summary, field);
+  }
+  if (hp_current_block_i32(bytes, value_start, val_size, block_start, word_count,
+                           HP_REG_METER_REACTIVE_POWER, &i32)) {
+    id(meter_reactive_power).publish_state(static_cast<float>(i32));
+    snprintf(field, sizeof(field), "meter_reactive_Q=%ldvar", static_cast<long>(i32));
+    hp_append_current_field(summary, field);
+  }
+  if (hp_current_block_i16(bytes, value_start, val_size, block_start, word_count,
+                           HP_REG_METER_POWER_FACTOR, &i16)) {
+    const float value = static_cast<float>(i16) * 0.001f;
+    id(meter_power_factor).publish_state(value);
+    snprintf(field, sizeof(field), "meter_power_factor=%.3f", value);
+    hp_append_current_field(summary, field);
+  }
+  if (hp_current_block_i32(bytes, value_start, val_size, block_start, word_count,
+                           HP_REG_METER_PHASE_A_ACTIVE_POWER, &i32)) {
+    id(meter_phase_a_power).publish_state(static_cast<float>(i32));
+    snprintf(field, sizeof(field), "meter_phase_A_P=%ldW", static_cast<long>(i32));
+    hp_append_current_field(summary, field);
+  }
+  if (hp_current_block_i32(bytes, value_start, val_size, block_start, word_count,
+                           HP_REG_METER_PHASE_B_ACTIVE_POWER, &i32)) {
+    id(meter_phase_b_power).publish_state(static_cast<float>(i32));
+    snprintf(field, sizeof(field), "meter_phase_B_P=%ldW", static_cast<long>(i32));
+    hp_append_current_field(summary, field);
+  }
+  if (hp_current_block_i32(bytes, value_start, val_size, block_start, word_count,
+                           HP_REG_METER_PHASE_C_ACTIVE_POWER, &i32)) {
+    id(meter_phase_c_power).publish_state(static_cast<float>(i32));
+    snprintf(field, sizeof(field), "meter_phase_C_P=%ldW", static_cast<long>(i32));
+    hp_append_current_field(summary, field);
+  }
+
   if (hp_current_block_u16(bytes, value_start, val_size, block_start, word_count, HP_REG_PV1_VOLTAGE, &u16)) {
     const float value = static_cast<float>(u16) * 0.1f;
     id(inverter_pv1_voltage).publish_state(value);
@@ -1796,6 +1897,20 @@ static inline std::string hp_publish_current_inverter_registers(uint8_t device_i
     snprintf(field, sizeof(field), "daily_energy=%.2fkWh", value);
     hp_append_current_field(summary, field);
   }
+  if (hp_current_block_u32(bytes, value_start, val_size, block_start, word_count,
+                           HP_TAG_DAILY_DC_ENERGY_YIELD, &u32)) {
+    const float value = static_cast<float>(u32) * HP_ENERGY_YIELD_SCALE;
+    id(inverter_daily_dc_energy_yield).publish_state(value);
+    snprintf(field, sizeof(field), "daily_DC_yield=%.2fkWh", value);
+    hp_append_current_field(summary, field);
+  }
+  if (hp_current_block_u32(bytes, value_start, val_size, block_start, word_count,
+                           HP_TAG_MPPT1_TOTAL_DC_ENERGY_YIELD, &u32)) {
+    const float value = static_cast<float>(u32) * HP_ENERGY_YIELD_SCALE;
+    id(inverter_mppt1_total_dc_energy_yield).publish_state(value);
+    snprintf(field, sizeof(field), "MPPT1_total_DC_yield=%.2fkWh", value);
+    hp_append_current_field(summary, field);
+  }
   if (hp_current_block_u32(bytes, value_start, val_size, block_start, word_count, HP_REG_RATED_POWER, &u32)) {
     id(inverter_rated_power).publish_state(static_cast<float>(u32));
     snprintf(field, sizeof(field), "rated_P=%luW", static_cast<unsigned long>(u32));
@@ -1941,11 +2056,25 @@ static inline std::string hp_publish_current_battery_registers(uint8_t device_id
     snprintf(field, sizeof(field), "battery_charged_today=%.2fkWh", value);
     hp_append_current_field(summary, field);
   }
+  if (hp_current_block_u32(bytes, value_start, val_size, block_start, word_count,
+                           HP_TAG_BATTERY_CHARGED_TODAY_LEGACY, &u32)) {
+    const float value = static_cast<float>(u32) * HP_ENERGY_YIELD_SCALE;
+    id(inverter_battery_charged_today).publish_state(value);
+    snprintf(field, sizeof(field), "battery_charged_today_legacy=%.2fkWh", value);
+    hp_append_current_field(summary, field);
+  }
   if (hp_current_block_u32(bytes, value_start, val_size, block_start, word_count, HP_TAG_BATTERY_DISCHARGED_TODAY,
                            &u32)) {
     const float value = static_cast<float>(u32) * HP_ENERGY_YIELD_SCALE;
     id(inverter_battery_discharged_today).publish_state(value);
     snprintf(field, sizeof(field), "battery_discharged_today=%.2fkWh", value);
+    hp_append_current_field(summary, field);
+  }
+  if (hp_current_block_u32(bytes, value_start, val_size, block_start, word_count,
+                           HP_TAG_BATTERY_DISCHARGED_TODAY_LEGACY, &u32)) {
+    const float value = static_cast<float>(u32) * HP_ENERGY_YIELD_SCALE;
+    id(inverter_battery_discharged_today).publish_state(value);
+    snprintf(field, sizeof(field), "battery_discharged_today_legacy=%.2fkWh", value);
     hp_append_current_field(summary, field);
   }
   if (hp_current_block_i16(bytes, value_start, val_size, block_start, word_count, HP_TAG_BATTERY_BUS_CURRENT,
@@ -2113,7 +2242,18 @@ static inline std::string hp_format_typed_tlv(uint8_t device_id, const std::vect
       snprintf(line, sizeof(line), "tag=0x%04X daily_energy=%.2fkWh", tag, i32 * HP_ENERGY_YIELD_SCALE);
       return line;
     }
-    if (tag == HP_TAG_BATTERY_CHARGED_TODAY && i32 >= 0) {
+    if (tag == HP_TAG_DAILY_DC_ENERGY_YIELD && i32 >= 0) {
+      snprintf(line, sizeof(line), "tag=0x%04X daily_DC_yield=%.2fkWh", tag,
+               i32 * HP_ENERGY_YIELD_SCALE);
+      return line;
+    }
+    if (tag == HP_TAG_MPPT1_TOTAL_DC_ENERGY_YIELD && i32 >= 0) {
+      snprintf(line, sizeof(line), "tag=0x%04X MPPT1_total_DC_yield=%.2fkWh", tag,
+               i32 * HP_ENERGY_YIELD_SCALE);
+      return line;
+    }
+    if ((tag == HP_TAG_BATTERY_CHARGED_TODAY || tag == HP_TAG_BATTERY_CHARGED_TODAY_LEGACY) &&
+        i32 >= 0) {
       snprintf(line, sizeof(line), "tag=0x%04X battery_charged=%.2fkWh", tag, i32 * HP_ENERGY_YIELD_SCALE);
       return line;
     }
@@ -2502,7 +2642,16 @@ static inline void hp_try_publish_known_tlv(uint8_t device_id, uint16_t tag, uin
     hp_publish_daily_energy(device_id, raw);
     return;
   }
-  if (tag == HP_TAG_BATTERY_CHARGED_TODAY && type == 0x02) {
+  if (tag == HP_TAG_DAILY_DC_ENERGY_YIELD && type == 0x02) {
+    hp_publish_daily_dc_energy_yield(device_id, hp_u32be(bytes, pos + 3));
+    return;
+  }
+  if (tag == HP_TAG_MPPT1_TOTAL_DC_ENERGY_YIELD && type == 0x02) {
+    hp_publish_mppt1_total_dc_energy_yield(device_id, hp_u32be(bytes, pos + 3));
+    return;
+  }
+  if ((tag == HP_TAG_BATTERY_CHARGED_TODAY || tag == HP_TAG_BATTERY_CHARGED_TODAY_LEGACY) &&
+      type == 0x02) {
     if (device_id != HP_DEV_INVERTER)
       return;
     const float kwh = static_cast<float>(hp_u32be(bytes, pos + 3)) * HP_ENERGY_YIELD_SCALE;

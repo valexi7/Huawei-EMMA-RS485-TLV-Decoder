@@ -27,9 +27,7 @@ from typing import Iterable
 
 CURRENT_DATA_SUBFUNCTION = 0x35
 AMBIGUOUS_THREE_VALUE_CANDIDATES = {
-    "0x90F3 i32[3]": (0x90F3, 6, 4),
     "0x90FB i16[3]": (0x90FB, 3, 2),
-    "0x910C i32[3]": (0x910C, 6, 4),
 }
 
 # Register, words, signed, scale. These mappings are backed by the July 2026
@@ -60,9 +58,14 @@ KNOWN_FIELDS = {
     "inverter_alarm_3": (0x7D0A, 1, False, 1.0, ""),
     "total_yield": (0x7D6A, 2, False, 0.01, "kWh"),
     "daily_yield": (0x7D72, 2, False, 0.01, "kWh"),
-    "legacy_daily_candidate": (0x7D80, 2, False, 0.01, "kWh"),
+    "daily_dc_energy_yield": (0x7D80, 2, False, 0.01, "kWh"),
+    "mppt1_total_dc_energy_yield": (0x7DD4, 2, False, 0.01, "kWh"),
     "battery_running_status": (0x9088, 1, False, 1.0, ""),
     "battery_working_mode": (0x908E, 1, False, 1.0, ""),
+    "battery_charged_today": (0x9097, 2, False, 0.01, "kWh"),
+    "battery_discharged_today": (0x9099, 2, False, 0.01, "kWh"),
+    "battery_charged_today_legacy": (0x9398, 2, False, 0.01, "kWh"),
+    "battery_discharged_today_legacy": (0x939A, 2, False, 0.01, "kWh"),
     "battery_maximum_charge_power": (0xB7E3, 2, False, 1.0, "W"),
     "battery_maximum_discharge_power": (0xB7E5, 2, False, 1.0, "W"),
     "battery_end_of_charge_soc": (0xB7E9, 1, False, 0.1, "%"),
@@ -75,9 +78,18 @@ KNOWN_FIELDS = {
     "phase_a_voltage": (0x90ED, 2, True, 0.1, "V"),
     "phase_b_voltage": (0x90EF, 2, True, 0.1, "V"),
     "phase_c_voltage": (0x90F1, 2, True, 0.1, "V"),
+    "meter_phase_a_current": (0x90F3, 2, True, 0.01, "A"),
+    "meter_phase_b_current": (0x90F5, 2, True, 0.01, "A"),
+    "meter_phase_c_current": (0x90F7, 2, True, 0.01, "A"),
+    "meter_active_power": (0x90F9, 2, True, 1.0, "W"),
+    "meter_reactive_power": (0x90FB, 2, True, 1.0, "var"),
+    "meter_power_factor": (0x90FD, 1, True, 0.001, ""),
     "line_ab_voltage_fast": (0x9106, 2, True, 0.1, "V"),
     "line_bc_voltage_fast": (0x9108, 2, True, 0.1, "V"),
     "line_ca_voltage_fast": (0x910A, 2, True, 0.1, "V"),
+    "meter_phase_a_active_power": (0x910C, 2, True, 1.0, "W"),
+    "meter_phase_b_active_power": (0x910E, 2, True, 1.0, "W"),
+    "meter_phase_c_active_power": (0x9110, 2, True, 1.0, "W"),
 }
 
 

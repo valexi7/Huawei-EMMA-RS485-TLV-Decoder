@@ -66,6 +66,18 @@ class KnownBatteryBlockTests(unittest.TestCase):
         self.assertAlmostEqual(read_field(0x9088, 24, payload, 0x909D, 1, signed=True) * 0.1, -3.3)
         self.assertAlmostEqual(read_field(0x9088, 24, payload, 0x909E, 1, signed=True) * 0.1, 41.3)
 
+    def test_legacy_daily_charge_and_discharge_counters(self):
+        payload = block_with_fields(
+            0x9394,
+            10,
+            {
+                0x9398: (916).to_bytes(4, "big"),
+                0x939A: (78).to_bytes(4, "big"),
+            },
+        )
+        self.assertEqual(read_field(0x9394, 10, payload, 0x9398, 2) * 0.01, 9.16)
+        self.assertEqual(read_field(0x9394, 10, payload, 0x939A, 2) * 0.01, 0.78)
+
     def test_working_mode_and_parameter_windows(self):
         live_payload = block_with_fields(
             0x908B,
@@ -135,6 +147,8 @@ class KnownBatteryBlockTests(unittest.TestCase):
         package = PACKAGE.read_text(encoding="utf-8")
         expected = {
             "HP_TAG_BATTERY_DISCHARGED_TODAY": "0x9099",
+            "HP_TAG_BATTERY_CHARGED_TODAY_LEGACY": "0x9398",
+            "HP_TAG_BATTERY_DISCHARGED_TODAY_LEGACY": "0x939A",
             "HP_TAG_BATTERY_TOTAL_BLOCK": "0x90CA",
             "HP_TAG_BATTERY_TOTAL_DISCHARGE": "0x90CC",
             "HP_TAG_BATTERY_RATED_CAPACITY": "0x90CE",
@@ -145,6 +159,7 @@ class KnownBatteryBlockTests(unittest.TestCase):
         }
         for name, value in expected.items():
             self.assertRegex(source, rf"{name}\s*=\s*{re.escape(value)}\s*;")
+        self.assertNotRegex(source, r"HP_TAG_BATTERY_DISCHARGED_TODAY_LEGACY\s*=\s*0x9398\s*;")
         for entity_id in (
             "battery_running_status",
             "battery_working_mode",

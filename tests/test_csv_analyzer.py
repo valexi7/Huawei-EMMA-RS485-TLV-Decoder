@@ -88,6 +88,70 @@ class CsvAnalyzerTests(unittest.TestCase):
         self.assertEqual(result["frame_stats"]["inferred_timestamps"], 1)
         self.assertEqual(result["fields"]["active_power"]["last"]["value"], 998)
 
+    def test_reports_confirmed_inverter_meter_mirror_fields(self):
+        values = bytearray(32 * 2)
+        fields = {
+            0x90F3: (-59).to_bytes(4, "big", signed=True),
+            0x90F5: (-99).to_bytes(4, "big", signed=True),
+            0x90F7: (90).to_bytes(4, "big", signed=True),
+            0x90F9: (31).to_bytes(4, "big", signed=True),
+            0x90FB: (394).to_bytes(4, "big", signed=True),
+            0x90FD: (-32).to_bytes(2, "big", signed=True),
+            0x910C: (-90).to_bytes(4, "big", signed=True),
+            0x910E: (-23).to_bytes(4, "big", signed=True),
+            0x9110: (157).to_bytes(4, "big", signed=True),
+        }
+        for register, raw in fields.items():
+            offset = (register - 0x90F3) * 2
+            values[offset : offset + len(raw)] = raw
+        payload = bytes([0x5B, 0x01, 0x90, 0xF3, 32]) + bytes(values)
+        body = bytes([0x0C, 0x41, 0x35, len(payload)]) + payload
+        frame = body + modbus_crc(body).to_bytes(2, "little")
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "meter.csv"
+            path.write_text(
+                "timestamp,rs485frame\n"
+                f"16.7.2026 klo 9.09.37,{frame.hex(' ')}\n",
+                encoding="utf-8",
+            )
+            result = analyze(path)
+
+        expected = {
+            "meter_phase_a_current": -0.59,
+            "meter_phase_b_current": -0.99,
+            "meter_phase_c_current": 0.9,
+            "meter_active_power": 31.0,
+            "meter_reactive_power": 394.0,
+            "meter_power_factor": -0.032,
+            "meter_phase_a_active_power": -90.0,
+            "meter_phase_b_active_power": -23.0,
+            "meter_phase_c_active_power": 157.0,
+        }
+        for name, value in expected.items():
+            self.assertEqual(result["fields"][name]["last"]["value"], value)
+
+    def test_reports_daily_and_mppt1_dc_energy_yields(self):
+        payload = bytes.fromhex(
+            "5B 02 "
+            "7D 80 02 00 00 06 65 "
+            "7D D4 02 00 03 67 E5"
+        )
+        body = bytes([0x0C, 0x41, 0x35, len(payload)]) + payload
+        frame = body + modbus_crc(body).to_bytes(2, "little")
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "dc-energy.csv"
+            path.write_text(
+                "timestamp,rs485frame\n"
+                f"16.7.2026 klo 17.30.00,{frame.hex(' ')}\n",
+                encoding="utf-8",
+            )
+            result = analyze(path)
+
+        self.assertEqual(result["fields"]["daily_dc_energy_yield"]["last"]["value"], 16.37)
+        self.assertEqual(result["fields"]["mppt1_total_dc_energy_yield"]["last"]["value"], 2232.05)
+
 
 if __name__ == "__main__":
     unittest.main()

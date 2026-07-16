@@ -227,6 +227,10 @@ and alarm fields observed in FC41 current-data blocks:
   charge-from-grid state;
 - maximum charge/discharge power, end-of-charge/end-of-discharge SOC, grid
   charge cutoff SOC, and forced charge/discharge period and power;
+- external power-meter phase currents, total active/reactive power, power
+  factor, and per-phase active power from the inverter's mirrored meter block;
+- current-day DC energy yield and cumulative MPPT1 DC energy yield from
+  registers `0x7D80` and `0x7DD4`;
 - LUNA2000 TOU periods from register block `0xB897`, formatted as readable
   charge/discharge time ranges and active weekdays;
 - inverter fault code, three raw alarm words, and a combined active-alarm text
