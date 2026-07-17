@@ -21,9 +21,20 @@ bytes in a bounded accumulator and waits for the remainder before checking the
 CRC or parsing TLVs. A callback boundary is therefore no longer reported as a
 truncated FC41 payload.
 
+Ordinary Modbus RTU functions on the same RX stream are also CRC-checked and
+logged with the `huawei_modbus` tag. Read responses are correlated with the
+preceding request so their starting register is visible. FC05/06/0F/10/16
+writes are prefixed with `CONTROL`, making EMMA control traffic easy to filter:
+
+```text
+[I][huawei_modbus] RTU dev=12 fc=0x03 read-holding-registers request start=0x90A1(37025) count=1 ...
+[I][huawei_modbus] RTU dev=12 fc=0x03 read-holding-registers response start=0x90A1(37025) ... remaining_charge_discharge_time=564min ...
+[I][huawei_modbus] CONTROL RTU dev=12 fc=0x10 write-multiple-registers request start=0xB897(47255) ...
+```
+
+This is passive logging only; the package never transmits Modbus commands.
+
 <img width="340" height="600" alt="image" src="https://github.com/user-attachments/assets/51cc1595-2606-4c61-9bd0-3767fc68c8fc" /><img width="340" height="600" alt="image" src="https://github.com/user-attachments/assets/2e5d098b-9de5-4e64-bda9-798912a8eca6" />
-
-
 
 ## Minimal ESP32 configuration
 

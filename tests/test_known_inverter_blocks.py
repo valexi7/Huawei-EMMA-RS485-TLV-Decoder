@@ -143,6 +143,9 @@ class KnownInverterBlockTests(unittest.TestCase):
             "HP_REG_STARTUP_TIME": "0x7D5B",
             "HP_REG_SHUTDOWN_TIME": "0x7D5D",
             "HP_REG_RATED_POWER": "0x7579",
+            "HP_TAG_INVERTER_MODEL_FAMILY": "0x7589",
+            "HP_TAG_MONITORING_BOARD_SERIAL": "0x7927",
+            "HP_TAG_DC_MBUS_VERSION": "0x798B",
             "HP_REG_INVERTER_FAULT_CODE": "0x7D5A",
             "HP_REG_INVERTER_ALARM_1": "0x7D08",
             "HP_REG_INVERTER_ALARM_2": "0x7D09",
@@ -156,6 +159,7 @@ class KnownInverterBlockTests(unittest.TestCase):
             "HP_REG_METER_PHASE_A_ACTIVE_POWER": "0x910C",
             "HP_REG_METER_PHASE_B_ACTIVE_POWER": "0x910E",
             "HP_REG_METER_PHASE_C_ACTIVE_POWER": "0x9110",
+            "HP_REG_BATTERY_REMAINING_CHARGE_DISCHARGE_TIME": "0x90A1",
         }
         for name, value in expected.items():
             self.assertRegex(source, rf"{name}\s*=\s*{re.escape(value)}\s*;")
@@ -196,6 +200,22 @@ class KnownInverterBlockTests(unittest.TestCase):
         self.assertIn('"ZZ Reverse Engineering - %s FC41 Tags %u"', source)
         self.assertIn('"ZZ Reverse Engineering - Unknown FC41 Device Tags %u"', source)
         self.assertNotIn("id: inverter_phase_a_power", package)
+
+    def test_duplicate_identity_tags_are_log_only_known_tags(self):
+        source = DECODER.read_text(encoding="utf-8")
+        package = PACKAGE.read_text(encoding="utf-8")
+        expected_log_fields = {
+            "HP_TAG_INVERTER_MODEL_FAMILY": "inverter_model_family",
+            "HP_TAG_MONITORING_BOARD_SERIAL": "monitoring_board_serial",
+            "HP_TAG_DC_MBUS_VERSION": "dc_mbus_version",
+        }
+        for constant, field_name in expected_log_fields.items():
+            self.assertGreaterEqual(source.count(f"case {constant}:"), 2)
+            self.assertIn(f'return "{field_name}";', source)
+            self.assertNotIn(f"id: {field_name}", package)
+
+        self.assertIn("remaining_charge_discharge_time=%umin", source)
+        self.assertNotIn("id: battery_remaining_charge_discharge_time", package)
 
 
 if __name__ == "__main__":

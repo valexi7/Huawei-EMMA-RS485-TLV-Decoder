@@ -23,6 +23,7 @@ logger:
   logs:
     huawei_prop: ${huawei_log_level}
     huawei_prop_fc41_frame: INFO
+    huawei_modbus: ${huawei_log_level}
 
 uart:
   id: huawei_emma_uart
@@ -41,6 +42,7 @@ uart:
       - lambda: |-
           id(huawei_rx_activity).execute();
           huawei_decode_proprietary_uart_buffer(bytes);
+          huawei_decode_generic_modbus_uart_buffer(bytes);
 
 script:
   # Board-independent no-op hook. Include huawei-emma-rx-light.yaml when the

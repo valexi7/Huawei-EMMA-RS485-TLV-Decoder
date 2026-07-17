@@ -11,6 +11,7 @@
 
 static const char *const HUAWEI_PROP_TAG = "huawei_prop";
 static const char *const HUAWEI_PROP_FC41_FRAME_TAG = "huawei_prop_fc41_frame";
+static const char *const HUAWEI_MODBUS_TAG = "huawei_modbus";
 
 static constexpr uint16_t HP_TAG_LINE_VOLTAGE = 0x774D;       // A-B, B-C, C-A line voltages (×0.1 V)
 static constexpr uint16_t HP_TAG_METER_PHASE_VOLTAGE_AUX = 0x9C52;  // meter-only candidate phase voltages
@@ -64,6 +65,9 @@ static constexpr uint16_t HP_REG_METER_PHASE_B_ACTIVE_POWER = 0x910E;
 static constexpr uint16_t HP_REG_METER_PHASE_C_ACTIVE_POWER = 0x9110;
 static constexpr uint16_t HP_TAG_INVERTER_CAPABILITIES = 0x7574;
 static constexpr uint16_t HP_REG_RATED_POWER = 0x7579;
+static constexpr uint16_t HP_TAG_INVERTER_MODEL_FAMILY = 0x7589;  // duplicate identity field; log only
+static constexpr uint16_t HP_TAG_MONITORING_BOARD_SERIAL = 0x7927;  // duplicate identity metadata; log only
+static constexpr uint16_t HP_TAG_DC_MBUS_VERSION = 0x798B;  // duplicate software metadata; log only
 static constexpr uint16_t HP_TAG_BATTERY_CHARGED_TODAY = 0x9097;   // u32, kWh (x0.01)
 static constexpr uint16_t HP_TAG_BATTERY_DISCHARGED_TODAY = 0x9099;  // u32, kWh (x0.01)
 static constexpr uint16_t HP_TAG_BATTERY_CHARGED_TODAY_LEGACY = 0x9398;
@@ -79,6 +83,7 @@ static constexpr uint16_t HP_REG_BATTERY_RUNNING_STATUS = 0x9088;
 static constexpr uint16_t HP_REG_BATTERY_WORKING_MODE = 0x908E;
 static constexpr uint16_t HP_TAG_BATTERY_BUS_CURRENT = 0x909D;
 static constexpr uint16_t HP_TAG_BATTERY_INTERNAL_TEMPERATURE = 0x909E;
+static constexpr uint16_t HP_REG_BATTERY_REMAINING_CHARGE_DISCHARGE_TIME = 0x90A1;  // minutes; log only
 static constexpr uint16_t HP_REG_BATTERY_MAXIMUM_CHARGE_POWER = 0xB7E3;
 static constexpr uint16_t HP_REG_BATTERY_MAXIMUM_DISCHARGE_POWER = 0xB7E5;
 static constexpr uint16_t HP_REG_BATTERY_END_OF_CHARGE_SOC = 0xB7E9;
@@ -141,6 +146,7 @@ static constexpr size_t HP_UNKNOWN_TAG_PAGES = 6;
 static constexpr size_t HP_TAG_PAGE_MAX_CHARS = 240;
 static constexpr size_t HP_LATEST_VALUE_MAX_CHARS = 12;
 static constexpr size_t HP_UART_PENDING_MAX = 2048;
+static constexpr size_t HP_MODBUS_UART_PENDING_MAX = 2048;
 
 static constexpr uint8_t HP_FC41_SUBFN_UPLOAD_START = 0x05;
 static constexpr uint8_t HP_FC41_SUBFN_UPLOAD_DATA = 0x06;
@@ -199,7 +205,18 @@ static std::vector<HpLatestTagValue> hp_latest_tag_values;
 static uint8_t hp_known_tag_values_dirty = 0;
 static bool hp_unknown_tag_values_dirty = false;
 static std::vector<uint8_t> hp_uart_pending;
+static std::vector<uint8_t> hp_modbus_uart_pending;
 static std::string hp_last_device_ids;
+
+struct HpModbusReadRequest {
+  bool valid{false};
+  uint8_t device_id{0};
+  uint8_t function{0};
+  uint16_t start_register{0};
+  uint16_t register_count{0};
+};
+
+static HpModbusReadRequest hp_modbus_last_read_request;
 
 static inline bool hp_tlv_type_size(uint8_t type, size_t *out_size);
 static inline uint32_t hp_u32be(const std::vector<uint8_t> &bytes, size_t pos);
@@ -1071,6 +1088,9 @@ static inline bool hp_tag_has_established_semantics(uint8_t device_id, uint16_t 
   switch (tag) {
     case HP_TAG_INVERTER_CAPABILITIES:
     case HP_REG_RATED_POWER:
+    case HP_TAG_INVERTER_MODEL_FAMILY:
+    case HP_TAG_MONITORING_BOARD_SERIAL:
+    case HP_TAG_DC_MBUS_VERSION:
     case HP_REG_PV1_VOLTAGE:
     case HP_REG_PV1_CURRENT:
     case HP_REG_INPUT_POWER:
@@ -1130,6 +1150,7 @@ static inline bool hp_tag_has_established_semantics(uint8_t device_id, uint16_t 
     case HP_REG_BATTERY_WORKING_MODE:
     case HP_TAG_BATTERY_BUS_CURRENT:
     case HP_TAG_BATTERY_INTERNAL_TEMPERATURE:
+    case HP_REG_BATTERY_REMAINING_CHARGE_DISCHARGE_TIME:
     case HP_REG_BATTERY_MAXIMUM_CHARGE_POWER:
     case HP_REG_BATTERY_MAXIMUM_DISCHARGE_POWER:
     case HP_REG_BATTERY_END_OF_CHARGE_SOC:
@@ -1345,6 +1366,32 @@ static inline void hp_try_publish_battery_pack_identity_values(uint8_t device_id
   const std::string firmware = hp_battery_pack_identity_firmware(bytes, pos + 3, val_size, tag);
   if (!firmware.empty())
     hp_publish_optional_text_sensor("Battery Firmware", firmware);
+}
+
+static inline const char *hp_log_only_identity_field_name(uint16_t tag) {
+  switch (tag) {
+    case HP_TAG_INVERTER_MODEL_FAMILY:
+      return "inverter_model_family";
+    case HP_TAG_MONITORING_BOARD_SERIAL:
+      return "monitoring_board_serial";
+    case HP_TAG_DC_MBUS_VERSION:
+      return "dc_mbus_version";
+    default:
+      return nullptr;
+  }
+}
+
+static inline std::string hp_format_log_only_identity_tlv(const std::vector<uint8_t> &bytes, size_t value_start,
+                                                          size_t val_size, uint16_t tag) {
+  const char *field_name = hp_log_only_identity_field_name(tag);
+  if (field_name == nullptr)
+    return std::string();
+  const std::string value = hp_tlv_value_to_ascii(bytes, value_start, val_size);
+  if (value.empty())
+    return std::string();
+  char line[192];
+  snprintf(line, sizeof(line), "tag=0x%04X %s=%s", tag, field_name, value.c_str());
+  return line;
 }
 
 static inline std::string hp_current_block_ascii_field(const std::vector<uint8_t> &bytes, size_t value_start,
@@ -2383,6 +2430,12 @@ static inline std::string hp_format_current_data_tlv(uint8_t device_id, const st
                                                      size_t val_size) {
   char line[320];
   const size_t value_start = pos + 3;
+  if (hp_log_only_identity_field_name(tag) != nullptr && val_size > 0) {
+    const std::string identity = hp_format_log_only_identity_tlv(bytes, value_start, val_size, tag);
+    if (!identity.empty())
+      return identity;
+  }
+
   if (tag == HP_TAG_INVERTER_IDENTIFICATION && val_size > 0) {
     const std::string ident = hp_format_inverter_identification_tlv(bytes, value_start, val_size);
     if (!ident.empty())
@@ -2456,6 +2509,10 @@ static inline std::string hp_format_current_data_tlv(uint8_t device_id, const st
     if (tag == HP_REG_BATTERY_CHARGE_FROM_GRID) {
       snprintf(line, sizeof(line), "tag=0x%04X battery_charge_from_grid=%s", tag,
                word == 0 ? "Disabled" : word == 1 ? "Enabled" : "Unknown");
+      return line;
+    }
+    if (tag == HP_REG_BATTERY_REMAINING_CHARGE_DISCHARGE_TIME) {
+      snprintf(line, sizeof(line), "tag=0x%04X remaining_charge_discharge_time=%umin", tag, word);
       return line;
     }
     snprintf(line, sizeof(line), "tag=0x%04X words=1 value=0x%04X(%u)", tag, word, word);
@@ -3155,4 +3212,273 @@ static inline void huawei_decode_proprietary_uart_buffer(const std::vector<uint8
 
   if (found)
     hp_publish_discovered_device_ids();
+}
+
+enum class HpModbusFrameKind : uint8_t {
+  NONE,
+  READ_REQUEST,
+  READ_RESPONSE,
+  WRITE_SINGLE,
+  WRITE_MULTIPLE_REQUEST,
+  WRITE_MULTIPLE_RESPONSE,
+  EXCEPTION,
+};
+
+static inline bool hp_modbus_is_read_function(uint8_t function) {
+  return function == 0x01 || function == 0x02 || function == 0x03 || function == 0x04;
+}
+
+static inline const char *hp_modbus_function_name(uint8_t function) {
+  switch (function) {
+    case 0x01: return "read-coils";
+    case 0x02: return "read-discrete-inputs";
+    case 0x03: return "read-holding-registers";
+    case 0x04: return "read-input-registers";
+    case 0x05: return "write-single-coil";
+    case 0x06: return "write-single-register";
+    case 0x0F: return "write-multiple-coils";
+    case 0x10: return "write-multiple-registers";
+    case 0x16: return "mask-write-register";
+    default: return "unknown";
+  }
+}
+
+static inline void hp_log_generic_modbus_frame(const std::vector<uint8_t> &bytes, size_t start, size_t end,
+                                                HpModbusFrameKind kind) {
+  const uint8_t device_id = bytes[start];
+  const uint8_t function = bytes[start + 1];
+  const char *function_name = hp_modbus_function_name(function & 0x7F);
+  const std::string raw = hp_hex_slice(bytes, start, end - start);
+
+  if (kind == HpModbusFrameKind::READ_REQUEST) {
+    const uint16_t first_register = hp_u16be(bytes[start + 2], bytes[start + 3]);
+    const uint16_t register_count = hp_u16be(bytes[start + 4], bytes[start + 5]);
+    hp_modbus_last_read_request = {true, device_id, function, first_register, register_count};
+    ESP_LOGI(HUAWEI_MODBUS_TAG, "RTU dev=%u fc=0x%02X %s request start=0x%04X(%u) count=%u raw=%s",
+             device_id, function, function_name, first_register, first_register, register_count, raw.c_str());
+    return;
+  }
+
+  if (kind == HpModbusFrameKind::READ_RESPONSE) {
+    const uint8_t byte_count = bytes[start + 2];
+    const bool correlated = hp_modbus_last_read_request.valid &&
+                            hp_modbus_last_read_request.device_id == device_id &&
+                            hp_modbus_last_read_request.function == function;
+    if (correlated) {
+      const uint16_t first_register = hp_modbus_last_read_request.start_register;
+      const uint16_t register_count = hp_modbus_last_read_request.register_count;
+      std::string known_field;
+      if (function >= 0x03 && first_register <= HP_REG_BATTERY_REMAINING_CHARGE_DISCHARGE_TIME &&
+          static_cast<uint32_t>(first_register) + register_count >
+              HP_REG_BATTERY_REMAINING_CHARGE_DISCHARGE_TIME) {
+        const size_t value_offset =
+            start + 3 + (2 * (HP_REG_BATTERY_REMAINING_CHARGE_DISCHARGE_TIME - first_register));
+        if (value_offset + 1 < end - 2) {
+          char field[80];
+          snprintf(field, sizeof(field), " remaining_charge_discharge_time=%umin",
+                   hp_u16be(bytes[value_offset], bytes[value_offset + 1]));
+          known_field = field;
+        }
+      }
+      ESP_LOGI(HUAWEI_MODBUS_TAG,
+               "RTU dev=%u fc=0x%02X %s response start=0x%04X(%u) requested=%u data_bytes=%u%s data=%s",
+               device_id, function, function_name, first_register, first_register, register_count, byte_count,
+               known_field.c_str(), hp_hex_slice(bytes, start + 3, byte_count).c_str());
+      hp_modbus_last_read_request.valid = false;
+    } else {
+      ESP_LOGI(HUAWEI_MODBUS_TAG, "RTU dev=%u fc=0x%02X %s uncorrelated-response data_bytes=%u data=%s raw=%s",
+               device_id, function, function_name, byte_count,
+               hp_hex_slice(bytes, start + 3, byte_count).c_str(), raw.c_str());
+    }
+    return;
+  }
+
+  if (kind == HpModbusFrameKind::WRITE_SINGLE) {
+    const uint16_t address = hp_u16be(bytes[start + 2], bytes[start + 3]);
+    const uint16_t value = hp_u16be(bytes[start + 4], bytes[start + 5]);
+    ESP_LOGI(HUAWEI_MODBUS_TAG,
+             "CONTROL RTU dev=%u fc=0x%02X %s address=0x%04X(%u) value=0x%04X(%u) raw=%s",
+             device_id, function, function_name, address, address, value, value, raw.c_str());
+    return;
+  }
+
+  if (kind == HpModbusFrameKind::WRITE_MULTIPLE_REQUEST) {
+    const uint16_t address = hp_u16be(bytes[start + 2], bytes[start + 3]);
+    const uint16_t count = hp_u16be(bytes[start + 4], bytes[start + 5]);
+    const uint8_t byte_count = bytes[start + 6];
+    ESP_LOGI(HUAWEI_MODBUS_TAG,
+             "CONTROL RTU dev=%u fc=0x%02X %s request start=0x%04X(%u) count=%u data=%s raw=%s",
+             device_id, function, function_name, address, address, count,
+             hp_hex_slice(bytes, start + 7, byte_count).c_str(), raw.c_str());
+    return;
+  }
+
+  if (kind == HpModbusFrameKind::WRITE_MULTIPLE_RESPONSE) {
+    const uint16_t address = hp_u16be(bytes[start + 2], bytes[start + 3]);
+    const uint16_t count = hp_u16be(bytes[start + 4], bytes[start + 5]);
+    ESP_LOGI(HUAWEI_MODBUS_TAG,
+             "CONTROL RTU dev=%u fc=0x%02X %s acknowledgement start=0x%04X(%u) count=%u raw=%s",
+             device_id, function, function_name, address, address, count, raw.c_str());
+    return;
+  }
+
+  if (kind == HpModbusFrameKind::EXCEPTION) {
+    ESP_LOGW(HUAWEI_MODBUS_TAG, "RTU dev=%u fc=0x%02X %s exception=0x%02X (%s) raw=%s", device_id,
+             function, function_name, bytes[start + 2], hp_modbus_exception_name(bytes[start + 2]), raw.c_str());
+    return;
+  }
+
+  ESP_LOGI(HUAWEI_MODBUS_TAG, "CONTROL RTU dev=%u fc=0x%02X %s raw=%s", device_id, function,
+           function_name, raw.c_str());
+}
+
+// Passive decoder for ordinary Modbus RTU traffic sharing the same UART. It
+// deliberately ignores FC41 frames, validates every standard frame by CRC,
+// and correlates read responses with the immediately preceding request so the
+// ESPHome log shows which registers EMMA reads or writes.
+static inline void huawei_decode_generic_modbus_uart_buffer(const std::vector<uint8_t> &bytes) {
+  if (bytes.empty())
+    return;
+  if (hp_modbus_uart_pending.size() + bytes.size() > HP_MODBUS_UART_PENDING_MAX) {
+    ESP_LOGW(HUAWEI_MODBUS_TAG, "RTU RX accumulator overflow (%u + %u bytes); resetting stream",
+             static_cast<unsigned>(hp_modbus_uart_pending.size()), static_cast<unsigned>(bytes.size()));
+    hp_modbus_uart_pending.clear();
+  }
+  hp_modbus_uart_pending.insert(hp_modbus_uart_pending.end(), bytes.begin(), bytes.end());
+
+  size_t p = 0;
+  while (p + 3 <= hp_modbus_uart_pending.size()) {
+    const size_t available = hp_modbus_uart_pending.size() - p;
+    const uint8_t function = hp_modbus_uart_pending[p + 1];
+
+    // Proprietary traffic is handled by huawei_decode_proprietary_uart_buffer.
+    if (function == 0x41) {
+      const uint8_t subfunction = hp_modbus_uart_pending[p + 2];
+      if (hp_is_upload_subfunction(subfunction)) {
+        p = hp_modbus_uart_pending.size();
+        break;
+      }
+      size_t frame_end = 0;
+      if (subfunction == HP_FC41_SUBFN_CURRENT_DATA) {
+        if (available < 4)
+          break;
+        frame_end = p + 4 + hp_modbus_uart_pending[p + 3] + 2;
+      } else if (subfunction == HP_FC41_SUBFN_REPORT) {
+        if (available < 5)
+          break;
+        frame_end = p + 5 + hp_u16be(hp_modbus_uart_pending[p + 3], hp_modbus_uart_pending[p + 4]) + 2;
+      } else {
+        if (available < 6)
+          break;
+        const uint16_t count = hp_u16be(hp_modbus_uart_pending[p + 4], hp_modbus_uart_pending[p + 5]);
+        if (!hp_is_count_u16_tag(hp_u16be(subfunction, hp_modbus_uart_pending[p + 3])) || count == 0 || count > 16) {
+          p++;
+          continue;
+        }
+        frame_end = p + 8 + (2 * count);
+      }
+      if (frame_end > hp_modbus_uart_pending.size())
+        break;
+      p = frame_end;
+      continue;
+    }
+
+    if (function == HP_FC41_EXCEPTION_FUNCTION) {
+      if (available < 5)
+        break;
+      p += 5;
+      continue;
+    }
+
+    HpModbusFrameKind kind = HpModbusFrameKind::NONE;
+    size_t frame_end = 0;
+    bool incomplete_candidate = false;
+
+    if ((function & 0x80) != 0) {
+      frame_end = p + 5;
+      if (frame_end <= hp_modbus_uart_pending.size() &&
+          hp_modbus_crc_matches(hp_modbus_uart_pending, p, frame_end)) {
+        kind = HpModbusFrameKind::EXCEPTION;
+      } else if (frame_end > hp_modbus_uart_pending.size()) {
+        incomplete_candidate = true;
+      }
+    } else if (hp_modbus_is_read_function(function)) {
+      const size_t request_end = p + 8;
+      const uint8_t byte_count = hp_modbus_uart_pending[p + 2];
+      const bool response_shape = byte_count <= 250 &&
+                                  ((function <= 0x02) || ((byte_count & 1) == 0));
+      const size_t response_end = p + 5 + byte_count;
+      const bool request_valid = request_end <= hp_modbus_uart_pending.size() &&
+                                 hp_modbus_crc_matches(hp_modbus_uart_pending, p, request_end);
+      const bool response_valid = response_shape && response_end <= hp_modbus_uart_pending.size() &&
+                                  hp_modbus_crc_matches(hp_modbus_uart_pending, p, response_end);
+      const bool expecting_response = hp_modbus_last_read_request.valid &&
+                                      hp_modbus_last_read_request.device_id == hp_modbus_uart_pending[p] &&
+                                      hp_modbus_last_read_request.function == function;
+      if (response_valid && (expecting_response || !request_valid)) {
+        kind = HpModbusFrameKind::READ_RESPONSE;
+        frame_end = response_end;
+      } else if (request_valid) {
+        kind = HpModbusFrameKind::READ_REQUEST;
+        frame_end = request_end;
+      } else if (response_valid) {
+        kind = HpModbusFrameKind::READ_RESPONSE;
+        frame_end = response_end;
+      } else if (request_end > hp_modbus_uart_pending.size() ||
+                 (response_shape && response_end > hp_modbus_uart_pending.size())) {
+        incomplete_candidate = true;
+      }
+    } else if (function == 0x05 || function == 0x06) {
+      frame_end = p + 8;
+      if (frame_end <= hp_modbus_uart_pending.size() &&
+          hp_modbus_crc_matches(hp_modbus_uart_pending, p, frame_end)) {
+        kind = HpModbusFrameKind::WRITE_SINGLE;
+      } else if (frame_end > hp_modbus_uart_pending.size()) {
+        incomplete_candidate = true;
+      }
+    } else if (function == 0x0F || function == 0x10) {
+      const size_t response_end = p + 8;
+      const bool response_valid = response_end <= hp_modbus_uart_pending.size() &&
+                                  hp_modbus_crc_matches(hp_modbus_uart_pending, p, response_end);
+      bool request_valid = false;
+      size_t request_end = 0;
+      if (available >= 7 && hp_modbus_uart_pending[p + 6] <= 246) {
+        request_end = p + 9 + hp_modbus_uart_pending[p + 6];
+        request_valid = request_end <= hp_modbus_uart_pending.size() &&
+                        hp_modbus_crc_matches(hp_modbus_uart_pending, p, request_end);
+        incomplete_candidate = request_end > hp_modbus_uart_pending.size();
+      } else if (available < 7) {
+        incomplete_candidate = true;
+      }
+      if (request_valid) {
+        kind = HpModbusFrameKind::WRITE_MULTIPLE_REQUEST;
+        frame_end = request_end;
+      } else if (response_valid) {
+        kind = HpModbusFrameKind::WRITE_MULTIPLE_RESPONSE;
+        frame_end = response_end;
+      } else if (response_end > hp_modbus_uart_pending.size()) {
+        incomplete_candidate = true;
+      }
+    } else if (function == 0x16) {
+      frame_end = p + 10;
+      if (frame_end <= hp_modbus_uart_pending.size() &&
+          hp_modbus_crc_matches(hp_modbus_uart_pending, p, frame_end)) {
+        kind = HpModbusFrameKind::WRITE_SINGLE;
+      } else if (frame_end > hp_modbus_uart_pending.size()) {
+        incomplete_candidate = true;
+      }
+    }
+
+    if (kind != HpModbusFrameKind::NONE) {
+      hp_log_generic_modbus_frame(hp_modbus_uart_pending, p, frame_end, kind);
+      p = frame_end;
+      continue;
+    }
+    if (incomplete_candidate)
+      break;
+    p++;
+  }
+
+  if (p > 0)
+    hp_modbus_uart_pending.erase(hp_modbus_uart_pending.begin(), hp_modbus_uart_pending.begin() + p);
 }
