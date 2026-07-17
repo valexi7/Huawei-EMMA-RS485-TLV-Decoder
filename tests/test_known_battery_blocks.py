@@ -168,6 +168,7 @@ class KnownBatteryBlockTests(unittest.TestCase):
             "HP_REG_BATTERY_WORKING_MODE": "0x908E",
             "HP_REG_BATTERY_WORKING_MODE_SETTING": "0xB7EE",
             "HP_REG_BATTERY_TOU_PERIODS": "0xB897",
+            "HP_REG_BATTERY_TOU_EXCESS_PV": "0xB8C3",
         }
         for name, value in expected.items():
             self.assertRegex(source, rf"{name}\s*=\s*{re.escape(value)}\s*;")
@@ -176,6 +177,7 @@ class KnownBatteryBlockTests(unittest.TestCase):
             "battery_running_status",
             "battery_working_mode",
             "battery_working_mode_setting",
+            "battery_excess_pv_behavior",
             "battery_charge_from_grid",
             "battery_tou_schedule",
             "inverter_battery_maximum_charge_power",

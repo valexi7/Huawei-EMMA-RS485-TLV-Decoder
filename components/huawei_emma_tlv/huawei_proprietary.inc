@@ -99,6 +99,7 @@ static constexpr uint16_t HP_REG_BATTERY_TOU_PERIODS = 0xB897;
 static constexpr uint16_t HP_REG_BATTERY_TOU_EXCESS_PV = 0xB8C3;
 static constexpr size_t HP_BATTERY_TOU_PERIOD_WORDS = 43;
 static constexpr size_t HP_BATTERY_TOU_MAX_PERIODS = 14;
+static constexpr uint32_t HP_TOU_WRITE_ACK_TIMEOUT_MS = 1000;
 static constexpr uint16_t HP_TAG_INVERTER_SOLAR_PV = 0x7E44;         // 0x35 words=4 i32[2], PV1/PV2 watts
 static constexpr uint16_t HP_TAG_SECONDARY_ACTIVE_POWER = 0x9385;  // inverter secondary active-power candidate
 static constexpr uint16_t HP_TAG_BUS_CLOCK = 0x7D6E;             // variable words: u32 unix sec, optional u32 seq
@@ -254,8 +255,11 @@ static HpTouEditorState hp_tou_editor;
 enum class HpTouWriteStage : uint8_t {
   IDLE,
   WAIT_SCHEDULE_ACK,
+  WAIT_SCHEDULE_READBACK,
   WAIT_EXCESS_PV_ACK,
+  WAIT_EXCESS_PV_READBACK,
   WAIT_WORKING_MODE_ACK,
+  WAIT_WORKING_MODE_READBACK,
   WAIT_READBACK,
 };
 
@@ -268,6 +272,7 @@ struct HpTouWriteSequence {
   bool write_working_mode{false};
   bool verification_failed{false};
   uint8_t verification_seen{0};
+  uint32_t stage_started_ms{0};
   std::array<uint16_t, HP_BATTERY_TOU_PERIOD_WORDS> expected_schedule{};
   uint16_t expected_working_mode{0};
   uint16_t expected_excess_pv{0};
@@ -920,6 +925,11 @@ static inline void huawei_modbus_start_tou_read_sequence(esphome::uart::UARTComp
     ESP_LOGW(HUAWEI_MODBUS_TAG, "DIAGNOSTIC TOU read blocked while a write sequence is active");
     return;
   }
+  if (hp_tou_editor.schedule_valid && hp_tou_editor.working_mode_valid && hp_tou_editor.excess_pv_valid) {
+    ESP_LOGI(HUAWEI_MODBUS_TAG,
+             "Battery TOU configuration is already available from FC41/readback; no manual read sent");
+    return;
+  }
   hp_modbus_begin_tou_read_sequence(uart, device_id);
 }
 
@@ -1384,6 +1394,7 @@ static inline bool hp_tag_has_established_semantics(uint8_t device_id, uint16_t 
     case HP_REG_BATTERY_CHARGE_FROM_GRID:
     case HP_REG_BATTERY_GRID_CHARGE_CUTOFF_SOC:
     case HP_REG_BATTERY_TOU_PERIODS:
+    case HP_REG_BATTERY_TOU_EXCESS_PV:
     case HP_TAG_INVERTER_SOLAR_PV:
     case HP_TAG_BUS_CLOCK:
     case HP_TAG_SERIAL_NUMBER:
@@ -1791,6 +1802,14 @@ static inline const char *hp_battery_working_mode_setting_name(uint16_t mode) {
   }
 }
 
+static inline const char *hp_battery_excess_pv_behavior_name(uint16_t behavior) {
+  switch (behavior) {
+    case 0: return "Feed to grid";
+    case 1: return "Charge";
+    default: return nullptr;
+  }
+}
+
 static inline std::string hp_named_u16(uint16_t value, const char *name) {
   if (name != nullptr)
     return std::string(name);
@@ -1868,6 +1887,24 @@ static inline std::string hp_format_battery_tou_periods(const std::vector<uint8_
   return out.empty() ? std::string("No TOU periods") : out;
 }
 
+static inline bool hp_read_battery_tou_schedule_block(
+    const std::vector<uint8_t> &bytes, size_t value_start, size_t val_size,
+    uint16_t block_start, uint8_t word_count,
+    std::array<uint16_t, HP_BATTERY_TOU_PERIOD_WORDS> *schedule) {
+  size_t offset = 0;
+  if (schedule == nullptr ||
+      !hp_current_block_field_offset(block_start, word_count, HP_REG_BATTERY_TOU_PERIODS,
+                                     HP_BATTERY_TOU_PERIOD_WORDS, &offset) ||
+      offset + (HP_BATTERY_TOU_PERIOD_WORDS * 2) > val_size ||
+      value_start + offset + (HP_BATTERY_TOU_PERIOD_WORDS * 2) > bytes.size())
+    return false;
+  for (size_t word = 0; word < schedule->size(); word++) {
+    const size_t pos = value_start + offset + (word * 2);
+    (*schedule)[word] = hp_u16be(bytes[pos], bytes[pos + 1]);
+  }
+  return true;
+}
+
 static inline size_t hp_tou_editor_period_count() {
   return std::min<size_t>(hp_tou_editor.desired_schedule[0], HP_BATTERY_TOU_MAX_PERIODS);
 }
@@ -1887,6 +1924,31 @@ static inline bool hp_tou_editor_working_mode_changed() {
 
 static inline bool hp_tou_editor_excess_pv_changed() {
   return hp_tou_editor.excess_pv_valid && hp_tou_editor.current_excess_pv != hp_tou_editor.desired_excess_pv;
+}
+
+static inline void hp_tou_editor_apply_schedule(
+    const std::array<uint16_t, HP_BATTERY_TOU_PERIOD_WORDS> &schedule) {
+  const bool preserve_pending = hp_tou_editor.schedule_valid && hp_tou_editor_schedule_changed();
+  hp_tou_editor.current_schedule = schedule;
+  hp_tou_editor.schedule_valid = schedule[0] <= HP_BATTERY_TOU_MAX_PERIODS;
+  if (!preserve_pending)
+    hp_tou_editor.desired_schedule = schedule;
+}
+
+static inline void hp_tou_editor_apply_working_mode(uint16_t mode) {
+  const bool preserve_pending = hp_tou_editor.working_mode_valid && hp_tou_editor_working_mode_changed();
+  hp_tou_editor.current_working_mode = mode;
+  hp_tou_editor.working_mode_valid = mode <= 5;
+  if (!preserve_pending)
+    hp_tou_editor.desired_working_mode = mode;
+}
+
+static inline void hp_tou_editor_apply_excess_pv(uint16_t behavior) {
+  const bool preserve_pending = hp_tou_editor.excess_pv_valid && hp_tou_editor_excess_pv_changed();
+  hp_tou_editor.current_excess_pv = behavior;
+  hp_tou_editor.excess_pv_valid = behavior <= 1;
+  if (!preserve_pending)
+    hp_tou_editor.desired_excess_pv = behavior;
 }
 
 static inline bool hp_tou_editor_ensure_period() {
@@ -1936,11 +1998,8 @@ static inline void huawei_tou_editor_set_working_mode(const std::string &option)
 static inline std::optional<std::string> huawei_tou_editor_excess_pv_option() {
   if (!hp_tou_editor.excess_pv_valid)
     return std::nullopt;
-  if (hp_tou_editor.desired_excess_pv == 0)
-    return std::string("Feed to grid");
-  if (hp_tou_editor.desired_excess_pv == 1)
-    return std::string("Charge");
-  return std::nullopt;
+  const char *name = hp_battery_excess_pv_behavior_name(hp_tou_editor.desired_excess_pv);
+  return name == nullptr ? std::nullopt : std::optional<std::string>(name);
 }
 
 static inline void huawei_tou_editor_set_excess_pv(const std::string &option) {
@@ -1955,8 +2014,13 @@ static inline void huawei_tou_editor_set_excess_pv(const std::string &option) {
 }
 
 static inline void huawei_tou_editor_select_period(size_t option_index) {
-  if (option_index < HP_BATTERY_TOU_MAX_PERIODS)
+  if (option_index < HP_BATTERY_TOU_MAX_PERIODS) {
     hp_tou_editor.selected_period = static_cast<uint8_t>(option_index);
+    id(battery_tou_period_start).update();
+    id(battery_tou_period_end).update();
+    id(battery_tou_period_action).update();
+    id(battery_tou_period_days).update();
+  }
 }
 
 static inline std::optional<esphome::ESPTime> huawei_tou_editor_period_time(bool start_time) {
@@ -2128,9 +2192,7 @@ static inline void hp_tou_store_readback(const std::vector<uint8_t> &bytes, size
       if (schedule != hp_tou_write.expected_schedule)
         hp_tou_write.verification_failed = true;
     }
-    hp_tou_editor.current_schedule = schedule;
-    hp_tou_editor.desired_schedule = schedule;
-    hp_tou_editor.schedule_valid = schedule[0] <= HP_BATTERY_TOU_MAX_PERIODS;
+    hp_tou_editor_apply_schedule(schedule);
     const std::string formatted = hp_format_battery_tou_periods(
         bytes, data_start, byte_count, HP_REG_BATTERY_TOU_PERIODS, HP_BATTERY_TOU_PERIOD_WORDS);
     id(battery_tou_schedule).publish_state(formatted);
@@ -2145,9 +2207,7 @@ static inline void hp_tou_store_readback(const std::vector<uint8_t> &bytes, size
       if (value != hp_tou_write.expected_working_mode)
         hp_tou_write.verification_failed = true;
     }
-    hp_tou_editor.current_working_mode = value;
-    hp_tou_editor.desired_working_mode = value;
-    hp_tou_editor.working_mode_valid = value <= 5;
+    hp_tou_editor_apply_working_mode(value);
     id(battery_working_mode_setting).publish_state(
         hp_named_u16(value, hp_battery_working_mode_setting_name(value)));
   } else if (first_register == HP_REG_BATTERY_TOU_EXCESS_PV) {
@@ -2156,9 +2216,9 @@ static inline void hp_tou_store_readback(const std::vector<uint8_t> &bytes, size
       if (value != hp_tou_write.expected_excess_pv)
         hp_tou_write.verification_failed = true;
     }
-    hp_tou_editor.current_excess_pv = value;
-    hp_tou_editor.desired_excess_pv = value;
-    hp_tou_editor.excess_pv_valid = value <= 1;
+    hp_tou_editor_apply_excess_pv(value);
+    id(battery_excess_pv_behavior).publish_state(
+        hp_named_u16(value, hp_battery_excess_pv_behavior_name(value)));
   }
 }
 
@@ -2193,6 +2253,7 @@ static inline void hp_tou_send_next_write() {
   }
   if (hp_tou_write.write_schedule) {
     hp_tou_write.stage = HpTouWriteStage::WAIT_SCHEDULE_ACK;
+    hp_tou_write.stage_started_ms = millis();
     hp_modbus_send_write_multiple_registers(hp_tou_write.uart, hp_tou_write.device_id,
                                             HP_REG_BATTERY_TOU_PERIODS,
                                             hp_tou_write.expected_schedule);
@@ -2200,6 +2261,7 @@ static inline void hp_tou_send_next_write() {
   }
   if (hp_tou_write.write_excess_pv) {
     hp_tou_write.stage = HpTouWriteStage::WAIT_EXCESS_PV_ACK;
+    hp_tou_write.stage_started_ms = millis();
     hp_modbus_send_write_single_register(hp_tou_write.uart, hp_tou_write.device_id,
                                          HP_REG_BATTERY_TOU_EXCESS_PV,
                                          hp_tou_write.expected_excess_pv);
@@ -2207,12 +2269,70 @@ static inline void hp_tou_send_next_write() {
   }
   if (hp_tou_write.write_working_mode) {
     hp_tou_write.stage = HpTouWriteStage::WAIT_WORKING_MODE_ACK;
+    hp_tou_write.stage_started_ms = millis();
     hp_modbus_send_write_single_register(hp_tou_write.uart, hp_tou_write.device_id,
                                          HP_REG_BATTERY_WORKING_MODE_SETTING,
                                          hp_tou_write.expected_working_mode);
     return;
   }
   hp_tou_begin_write_verification();
+}
+
+static inline uint16_t hp_tou_write_readback_expected_register() {
+  switch (hp_tou_write.stage) {
+    case HpTouWriteStage::WAIT_SCHEDULE_READBACK:
+      return HP_REG_BATTERY_TOU_PERIODS;
+    case HpTouWriteStage::WAIT_EXCESS_PV_READBACK:
+      return HP_REG_BATTERY_TOU_EXCESS_PV;
+    case HpTouWriteStage::WAIT_WORKING_MODE_READBACK:
+      return HP_REG_BATTERY_WORKING_MODE_SETTING;
+    default:
+      return 0;
+  }
+}
+
+static inline uint16_t hp_tou_write_readback_expected_count() {
+  return hp_tou_write.stage == HpTouWriteStage::WAIT_SCHEDULE_READBACK
+             ? HP_BATTERY_TOU_PERIOD_WORDS
+             : 1;
+}
+
+static inline bool hp_tou_write_readback_response_matches(uint8_t device_id, uint8_t function,
+                                                           uint8_t byte_count) {
+  return hp_tou_write_readback_expected_register() != 0 &&
+         device_id == hp_tou_write.device_id && function == 0x03 &&
+         byte_count == 2 * hp_tou_write_readback_expected_count();
+}
+
+static inline void huawei_modbus_poll_tou_write_sequence() {
+  if (!huawei_modbus_tou_write_sequence_active() || hp_tou_write.uart == nullptr ||
+      millis() - hp_tou_write.stage_started_ms < HP_TOU_WRITE_ACK_TIMEOUT_MS)
+    return;
+
+  uint16_t address = 0;
+  uint16_t count = 1;
+  switch (hp_tou_write.stage) {
+    case HpTouWriteStage::WAIT_SCHEDULE_ACK:
+      hp_tou_write.stage = HpTouWriteStage::WAIT_SCHEDULE_READBACK;
+      address = HP_REG_BATTERY_TOU_PERIODS;
+      count = HP_BATTERY_TOU_PERIOD_WORDS;
+      break;
+    case HpTouWriteStage::WAIT_EXCESS_PV_ACK:
+      hp_tou_write.stage = HpTouWriteStage::WAIT_EXCESS_PV_READBACK;
+      address = HP_REG_BATTERY_TOU_EXCESS_PV;
+      break;
+    case HpTouWriteStage::WAIT_WORKING_MODE_ACK:
+      hp_tou_write.stage = HpTouWriteStage::WAIT_WORKING_MODE_READBACK;
+      address = HP_REG_BATTERY_WORKING_MODE_SETTING;
+      break;
+    default:
+      return;
+  }
+  hp_tou_write.stage_started_ms = millis();
+  ESP_LOGW(HUAWEI_MODBUS_TAG,
+           "No Modbus write acknowledgement for 0x%04X(%u) within %ums; checking readback",
+           address, address, static_cast<unsigned>(HP_TOU_WRITE_ACK_TIMEOUT_MS));
+  huawei_modbus_send_read_request(hp_tou_write.uart, hp_tou_write.device_id, address, count);
 }
 
 static inline void huawei_modbus_start_tou_write_sequence(esphome::uart::UARTComponent *uart,
@@ -2270,6 +2390,70 @@ static inline void hp_tou_handle_write_multiple_ack(uint8_t device_id, uint16_t 
       count != HP_BATTERY_TOU_PERIOD_WORDS)
     return;
   hp_tou_write.write_schedule = false;
+  hp_tou_send_next_write();
+}
+
+static inline void hp_tou_handle_write_readback(uint16_t first_register) {
+  bool matches = false;
+  const char *field = "unknown";
+  if (hp_tou_write.stage == HpTouWriteStage::WAIT_SCHEDULE_READBACK &&
+      first_register == HP_REG_BATTERY_TOU_PERIODS) {
+    matches = hp_tou_editor.current_schedule == hp_tou_write.expected_schedule;
+    field = "schedule";
+    if (matches)
+      hp_tou_write.write_schedule = false;
+  } else if (hp_tou_write.stage == HpTouWriteStage::WAIT_EXCESS_PV_READBACK &&
+             first_register == HP_REG_BATTERY_TOU_EXCESS_PV) {
+    matches = hp_tou_editor.current_excess_pv == hp_tou_write.expected_excess_pv;
+    field = "excess-PV behavior";
+    if (matches)
+      hp_tou_write.write_excess_pv = false;
+  } else if (hp_tou_write.stage == HpTouWriteStage::WAIT_WORKING_MODE_READBACK &&
+             first_register == HP_REG_BATTERY_WORKING_MODE_SETTING) {
+    matches = hp_tou_editor.current_working_mode == hp_tou_write.expected_working_mode;
+    field = "working mode";
+    if (matches)
+      hp_tou_write.write_working_mode = false;
+  } else {
+    return;
+  }
+
+  if (!matches) {
+    ESP_LOGE(HUAWEI_MODBUS_TAG,
+             "Battery TOU %s write was not confirmed: acknowledgement missing and readback differs",
+             field);
+    huawei_modbus_abort_tou_write_sequence("write readback mismatch");
+    return;
+  }
+  ESP_LOGI(HUAWEI_MODBUS_TAG, "Battery TOU %s write confirmed by readback", field);
+  hp_tou_send_next_write();
+}
+
+static inline void hp_tou_confirm_schedule_from_fc41(
+    const std::array<uint16_t, HP_BATTERY_TOU_PERIOD_WORDS> &schedule) {
+  if (hp_tou_write.stage != HpTouWriteStage::WAIT_SCHEDULE_ACK ||
+      schedule != hp_tou_write.expected_schedule)
+    return;
+  ESP_LOGI(HUAWEI_MODBUS_TAG, "Battery TOU schedule write confirmed by FC41 update");
+  hp_tou_write.write_schedule = false;
+  hp_tou_send_next_write();
+}
+
+static inline void hp_tou_confirm_working_mode_from_fc41(uint16_t mode) {
+  if (hp_tou_write.stage != HpTouWriteStage::WAIT_WORKING_MODE_ACK ||
+      mode != hp_tou_write.expected_working_mode)
+    return;
+  ESP_LOGI(HUAWEI_MODBUS_TAG, "Battery TOU working-mode write confirmed by FC41 update");
+  hp_tou_write.write_working_mode = false;
+  hp_tou_send_next_write();
+}
+
+static inline void hp_tou_confirm_excess_pv_from_fc41(uint16_t behavior) {
+  if (hp_tou_write.stage != HpTouWriteStage::WAIT_EXCESS_PV_ACK ||
+      behavior != hp_tou_write.expected_excess_pv)
+    return;
+  ESP_LOGI(HUAWEI_MODBUS_TAG, "Battery TOU excess-PV write confirmed by FC41 update");
+  hp_tou_write.write_excess_pv = false;
   hp_tou_send_next_write();
 }
 
@@ -2691,6 +2875,8 @@ static inline std::string hp_publish_current_battery_registers(uint8_t device_id
                            HP_REG_BATTERY_WORKING_MODE_SETTING, &u16)) {
     const std::string mode = hp_named_u16(u16, hp_battery_working_mode_setting_name(u16));
     id(battery_working_mode_setting).publish_state(mode);
+    hp_tou_editor_apply_working_mode(u16);
+    hp_tou_confirm_working_mode_from_fc41(u16);
     snprintf(field, sizeof(field), "battery_mode_setting=%s", mode.c_str());
     hp_append_current_field(summary, field);
   }
@@ -2713,10 +2899,25 @@ static inline std::string hp_publish_current_battery_registers(uint8_t device_id
       hp_format_battery_tou_periods(bytes, value_start, val_size, block_start, word_count);
   if (!tou_periods.empty()) {
     id(battery_tou_schedule).publish_state(tou_periods);
+    std::array<uint16_t, HP_BATTERY_TOU_PERIOD_WORDS> schedule{};
+    if (hp_read_battery_tou_schedule_block(bytes, value_start, val_size, block_start,
+                                           word_count, &schedule)) {
+      hp_tou_editor_apply_schedule(schedule);
+      hp_tou_confirm_schedule_from_fc41(schedule);
+    }
     uint16_t period_count = 0;
     hp_current_block_u16(bytes, value_start, val_size, block_start, word_count,
                          HP_REG_BATTERY_TOU_PERIODS, &period_count);
     snprintf(field, sizeof(field), "battery_tou_periods=%u", period_count);
+    hp_append_current_field(summary, field);
+  }
+  if (hp_current_block_u16(bytes, value_start, val_size, block_start, word_count,
+                           HP_REG_BATTERY_TOU_EXCESS_PV, &u16)) {
+    const std::string behavior = hp_named_u16(u16, hp_battery_excess_pv_behavior_name(u16));
+    id(battery_excess_pv_behavior).publish_state(behavior);
+    hp_tou_editor_apply_excess_pv(u16);
+    hp_tou_confirm_excess_pv_from_fc41(u16);
+    snprintf(field, sizeof(field), "battery_excess_pv=%s", behavior.c_str());
     hp_append_current_field(summary, field);
   }
 
@@ -3146,6 +3347,11 @@ static inline std::string hp_format_current_data_tlv(uint8_t device_id, const st
     if (tag == HP_REG_BATTERY_WORKING_MODE_SETTING) {
       const std::string mode = hp_named_u16(word, hp_battery_working_mode_setting_name(word));
       snprintf(line, sizeof(line), "tag=0x%04X battery_mode_setting=%s", tag, mode.c_str());
+      return line;
+    }
+    if (tag == HP_REG_BATTERY_TOU_EXCESS_PV) {
+      const std::string behavior = hp_named_u16(word, hp_battery_excess_pv_behavior_name(word));
+      snprintf(line, sizeof(line), "tag=0x%04X battery_excess_pv=%s", tag, behavior.c_str());
       return line;
     }
     if (tag == HP_REG_BATTERY_CHARGE_FROM_GRID) {
@@ -3904,17 +4110,22 @@ static inline void hp_log_generic_modbus_frame(const std::vector<uint8_t> &bytes
   if (kind == HpModbusFrameKind::READ_RESPONSE) {
     const uint8_t byte_count = bytes[start + 2];
     const bool diagnostic_correlated = hp_modbus_tou_response_matches(device_id, function, byte_count);
+    const bool write_correlated = hp_tou_write_readback_response_matches(device_id, function, byte_count);
     const bool ordinary_correlated = hp_modbus_last_read_request.valid &&
                                      hp_modbus_last_read_request.device_id == device_id &&
                                      hp_modbus_last_read_request.function == function;
-    const bool correlated = diagnostic_correlated || ordinary_correlated;
+    const bool correlated = diagnostic_correlated || write_correlated || ordinary_correlated;
     if (correlated) {
       const uint16_t first_register = diagnostic_correlated
                                           ? hp_modbus_tou_expected_register()
-                                          : hp_modbus_last_read_request.start_register;
+                                          : write_correlated
+                                                ? hp_tou_write_readback_expected_register()
+                                                : hp_modbus_last_read_request.start_register;
       const uint16_t register_count = diagnostic_correlated
                                           ? hp_modbus_tou_expected_register_count()
-                                          : hp_modbus_last_read_request.register_count;
+                                          : write_correlated
+                                                ? hp_tou_write_readback_expected_count()
+                                                : hp_modbus_last_read_request.register_count;
       std::string known_field;
       if (function >= 0x03 && first_register <= HP_REG_BATTERY_REMAINING_CHARGE_DISCHARGE_TIME &&
           static_cast<uint32_t>(first_register) + register_count >
@@ -3932,11 +4143,13 @@ static inline void hp_log_generic_modbus_frame(const std::vector<uint8_t> &bytes
                "RTU dev=%u fc=0x%02X %s response start=0x%04X(%u) requested=%u data_bytes=%u%s data=%s",
                device_id, function, function_name, first_register, first_register, register_count, byte_count,
                known_field.c_str(), hp_hex_slice(bytes, start + 3, byte_count).c_str());
-      if (diagnostic_correlated)
+      if (diagnostic_correlated || write_correlated)
         hp_tou_store_readback(bytes, start + 3, byte_count, first_register);
       if (ordinary_correlated)
         hp_modbus_last_read_request.valid = false;
-      if (diagnostic_correlated)
+      if (write_correlated)
+        hp_tou_handle_write_readback(first_register);
+      else if (diagnostic_correlated)
         hp_modbus_advance_tou_read_sequence();
     } else {
       ESP_LOGI(HUAWEI_MODBUS_TAG, "RTU dev=%u fc=0x%02X %s uncorrelated-response data_bytes=%u data=%s raw=%s",

@@ -84,6 +84,7 @@ script:
       - wait_until:
           condition:
             lambda: |-
+              huawei_modbus_poll_tou_write_sequence();
               return !huawei_modbus_tou_write_sequence_active();
           timeout: ${huawei_modbus_tou_write_timeout}
       - lambda: |-
@@ -112,7 +113,7 @@ select:
 
   - platform: template
     id: battery_excess_pv_behavior_control
-    name: "Battery Excess PV Behavior"
+    name: "Battery Excess PV Behavior Control"
     icon: mdi:solar-power-variant
     entity_category: config
     disabled_by_default: true
@@ -496,6 +497,14 @@ text_sensor:
     id: battery_working_mode_setting
     name: "Battery Working Mode Setting"
     icon: mdi:battery-cog-outline
+    entity_category: diagnostic
+    lambda: |-
+      return std::nullopt;
+
+  - platform: template
+    id: battery_excess_pv_behavior
+    name: "Battery Excess PV Behavior"
+    icon: mdi:solar-power-variant
     entity_category: diagnostic
     lambda: |-
       return std::nullopt;

@@ -38,6 +38,16 @@ class GenericModbusLoggerTests(unittest.TestCase):
         for item in (read_request, read_response, write_single, write_multiple):
             self.assertEqual(modbus_crc(item[:-2]), int.from_bytes(item[-2:], "little"))
 
+    def test_captured_tou_write_request_has_valid_shape_and_crc(self):
+        words = [1, 20 * 60, 8 * 60, 0x01FF] + [0] * 39
+        payload = b"".join(word.to_bytes(2, "big") for word in words)
+        request = frame(bytes.fromhex("0C 10 B8 97 00 2B 56") + payload)
+
+        self.assertEqual(len(words), 43)
+        self.assertEqual(len(payload), 86)
+        self.assertEqual(len(request), 95)
+        self.assertEqual(request[-2:], bytes.fromhex("02 43"))
+
     def test_package_calls_both_passive_decoders(self):
         source = DECODER.read_text(encoding="utf-8")
         package = PACKAGE.read_text(encoding="utf-8")
@@ -70,6 +80,8 @@ class GenericModbusLoggerTests(unittest.TestCase):
         self.assertIn('name: "Battery TOU Read Configuration"', package)
         self.assertNotIn('name: "ZZ Reverse Engineering - Read TOU Configuration"', package)
         self.assertIn("disabled_by_default: true", package)
+        button = package.index("id: huawei_read_tou_configuration_button")
+        self.assertIn("entity_category: config", package[button : button + 250])
 
     def test_response_driven_probe_resolves_dual_valid_read_shape(self):
         source = DECODER.read_text(encoding="utf-8")
@@ -105,6 +117,9 @@ class GenericModbusLoggerTests(unittest.TestCase):
         self.assertIn('"Battery TOU configuration is unchanged; no registers written"', source)
         self.assertIn("hp_tou_write.verification_seen == 0x07", source)
         self.assertIn("hp_tou_store_readback(bytes, start + 3, byte_count, first_register);", source)
+        self.assertIn("huawei_modbus_poll_tou_write_sequence();", package)
+        self.assertIn("WAIT_SCHEDULE_READBACK", source)
+        self.assertIn('"Battery TOU %s write confirmed by readback"', source)
 
         sequence = source.index("static inline void hp_tou_send_next_write")
         schedule = source.index("HP_REG_BATTERY_TOU_PERIODS", sequence)
@@ -128,6 +143,28 @@ class GenericModbusLoggerTests(unittest.TestCase):
         ]
         positions = [control.index(f'- "{option}"') for option in options]
         self.assertEqual(positions, sorted(positions))
+
+    def test_fc41_configuration_populates_the_tou_editor(self):
+        source = DECODER.read_text(encoding="utf-8")
+        package = PACKAGE.read_text(encoding="utf-8")
+
+        self.assertIn("hp_tou_editor_apply_schedule(schedule);", source)
+        self.assertIn("hp_tou_editor_apply_working_mode(u16);", source)
+        self.assertIn("hp_tou_editor_apply_excess_pv(u16);", source)
+        self.assertIn("hp_tou_confirm_schedule_from_fc41(schedule);", source)
+        self.assertIn("already available from FC41/readback; no manual read sent", source)
+        for entity_id in (
+            "battery_tou_period_start",
+            "battery_tou_period_end",
+            "battery_tou_period_action",
+            "battery_tou_period_days",
+        ):
+            self.assertIn(f"id({entity_id}).update();", source)
+
+        sensor = package.index("id: battery_excess_pv_behavior\n")
+        self.assertIn('name: "Battery Excess PV Behavior"', package[sensor : sensor + 250])
+        self.assertIn("entity_category: diagnostic", package[sensor : sensor + 250])
+        self.assertIn('name: "Battery Excess PV Behavior Control"', package)
 
 
 if __name__ == "__main__":

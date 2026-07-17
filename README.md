@@ -207,9 +207,8 @@ these substitutions in the local file when necessary:
 
 ### Manual TOU configuration
 
-`Battery TOU Read Configuration` remains a disabled-by-default diagnostic
-button. When enabled and pressed, it reads these holding registers once, in
-order:
+`Battery TOU Read Configuration` remains a disabled-by-default config button.
+When enabled and pressed, it reads these holding registers once, in order:
 
 1. `47255 (0xB897)`, 43 registers: TOU charging/discharging periods.
 2. `47086 (0xB7EE)`, one register: battery working-mode setting.
@@ -232,30 +231,40 @@ cause a collision. The sequence waits for the complete response to each read
 before sending the next request, aborts after 15 seconds if a response is
 missing, and prevents repeated button presses from overlapping.
 
+The passive FC41 decoder also feeds complete schedule, working-mode setting,
+and excess-PV blocks into the TOU editor. When all three have already arrived,
+the manual Read button reports that configuration is available and sends no
+Modbus request. FC41 updates refresh the current values without discarding
+pending local edits. Selecting another period immediately loads that period's
+start time, end time, action, and day mask into the editor controls.
+
 The Battery-prefixed TOU editor entities are also disabled by default and use
 the `config` entity category. Enable only the controls you intend to use:
 
 - `Battery Working Mode Setting Control`, ordered by raw register value from
   Adaptive (`0`) through TOU (LUNA2000) (`5`).
-- `Battery Excess PV Behavior`: Feed to grid (`0`) or Charge (`1`).
+- `Battery Excess PV Behavior Control`: Feed to grid (`0`) or Charge (`1`).
 - `Battery TOU Selected Period`, start/end time, action, and day selection for
   periods 1 through 14.
 - `Battery TOU Clear Selected Period`, which removes the selected local period
   and shifts later periods up.
 - `Battery TOU Write Configuration`, which applies the pending local edits.
 
-Always press Read before editing. The editor refuses writes until all three
-register groups have a valid readback. Pressing Write compares the pending
-values with that readback: unchanged mode and excess-PV registers are skipped,
-and the 43-register schedule block is sent only if a period changed. The
-schedule is written first, excess-PV behavior second, and working mode last.
-Each write waits for its Modbus acknowledgement; then all three groups are read
-again and compared with the requested values. There are no automatic writes or
-automatic retries.
+Wait for FC41 configuration or press Read before editing. The editor refuses
+writes until all three register groups have a valid FC41 value or readback.
+Pressing Write compares the pending values with those current values: unchanged
+mode and excess-PV registers are skipped, and the 43-register schedule block is
+sent only if a period changed. The schedule is written first, excess-PV
+behavior second, and working mode last. Each write waits one second for its
+Modbus acknowledgement. If the acknowledgement is absent, the ESP reads that
+register group and continues only on an exact match. Finally, all three groups
+are read again and compared with the requested values. There are no automatic
+writes or blind retries.
 
 The `Battery TOU Schedule` diagnostic text sensor formats every received period
 in order (for example, `1:Discharge ...; 2:Charge ...`). Very long schedules
-are shortened to fit the Home Assistant text-state limit.
+are shortened to fit the Home Assistant text-state limit. `Battery Excess PV
+Behavior` exposes the passive/readback value as a separate diagnostic sensor.
 
 ## Local development
 
