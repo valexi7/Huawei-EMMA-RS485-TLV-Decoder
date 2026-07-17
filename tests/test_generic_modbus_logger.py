@@ -57,14 +57,28 @@ class GenericModbusLoggerTests(unittest.TestCase):
         self.assertIn("huawei_modbus_send_read_request", source)
         self.assertIn("HP_REG_BATTERY_TOU_EXCESS_PV = 0xB8C3", source)
 
-        tou = package.index("HP_REG_BATTERY_TOU_PERIODS")
-        mode = package.index("HP_REG_BATTERY_WORKING_MODE_SETTING", tou)
-        excess_pv = package.index("HP_REG_BATTERY_TOU_EXCESS_PV", mode)
+        sequence = source.index("static inline void hp_modbus_advance_tou_read_sequence")
+        tou = source.index("WAIT_TOU_PERIODS", sequence)
+        mode = source.index("HP_REG_BATTERY_WORKING_MODE_SETTING", tou)
+        excess_pv = source.index("HP_REG_BATTERY_TOU_EXCESS_PV", mode)
         self.assertLess(tou, mode)
         self.assertLess(mode, excess_pv)
-        self.assertIn("HP_BATTERY_TOU_PERIOD_WORDS", package[tou:mode])
+        self.assertIn("huawei_modbus_start_tou_read_sequence", package)
+        self.assertIn("wait_until:", package)
+        self.assertIn("huawei_modbus_diagnostic_response_timeout", package)
+        self.assertNotIn("huawei_modbus_diagnostic_read_delay", package)
         self.assertIn('name: "ZZ Reverse Engineering - Read TOU Configuration"', package)
         self.assertIn("disabled_by_default: true", package)
+
+    def test_response_driven_probe_resolves_dual_valid_read_shape(self):
+        source = DECODER.read_text(encoding="utf-8")
+        response = bytes.fromhex("0C 03 02 00 01 54 45")
+        ambiguous = response + b"\x00"
+
+        self.assertEqual(modbus_crc(response[:-2]), int.from_bytes(response[-2:], "little"))
+        self.assertEqual(modbus_crc(ambiguous[:-2]), int.from_bytes(ambiguous[-2:], "little"))
+        self.assertIn("diagnostic_response || expecting_response || !request_valid", source)
+        self.assertIn("hp_modbus_tou_response_matches", source)
 
 
 if __name__ == "__main__":

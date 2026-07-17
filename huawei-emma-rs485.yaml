@@ -4,7 +4,7 @@ substitutions:
   huawei_uart_rx_buffer_size: "512"
   huawei_log_level: INFO
   huawei_modbus_inverter_device_id: "12"
-  huawei_modbus_diagnostic_read_delay: 500ms
+  huawei_modbus_diagnostic_response_timeout: 15s
   huawei_tlv_ref: main
   # Always update the nested external component when this package is refreshed.
   # This prevents a new YAML package from compiling against an older cached .inc.
@@ -55,22 +55,21 @@ script:
 
   # Manual diagnostic probe only. The host device must add a UART TX pin and,
   # for a non-auto-direction transceiver, a flow_control_pin. No reads are sent
-  # automatically. Single mode prevents overlapping button sequences.
+  # automatically. Each request is sent only after the preceding response.
+  # Single mode prevents overlapping button sequences.
   - id: huawei_read_tou_configuration
     mode: single
     then:
       - lambda: |-
-          huawei_modbus_send_read_request(id(huawei_emma_uart), ${huawei_modbus_inverter_device_id},
-                                          HP_REG_BATTERY_TOU_PERIODS,
-                                          HP_BATTERY_TOU_PERIOD_WORDS);
-      - delay: ${huawei_modbus_diagnostic_read_delay}
+          huawei_modbus_start_tou_read_sequence(id(huawei_emma_uart),
+                                                ${huawei_modbus_inverter_device_id});
+      - wait_until:
+          condition:
+            lambda: |-
+              return !huawei_modbus_tou_read_sequence_active();
+          timeout: ${huawei_modbus_diagnostic_response_timeout}
       - lambda: |-
-          huawei_modbus_send_read_request(id(huawei_emma_uart), ${huawei_modbus_inverter_device_id},
-                                          HP_REG_BATTERY_WORKING_MODE_SETTING, 1);
-      - delay: ${huawei_modbus_diagnostic_read_delay}
-      - lambda: |-
-          huawei_modbus_send_read_request(id(huawei_emma_uart), ${huawei_modbus_inverter_device_id},
-                                          HP_REG_BATTERY_TOU_EXCESS_PV, 1);
+          huawei_modbus_abort_tou_read_sequence();
 
 button:
   - platform: template

@@ -200,7 +200,7 @@ these substitutions in the local file when necessary:
 | `huawei_uart_rx_buffer_size` | `512` | ESPHome UART receive buffer |
 | `huawei_log_level` | `INFO` | Decoder log level |
 | `huawei_modbus_inverter_device_id` | `12` | Inverter address used by the manual TOU diagnostic button |
-| `huawei_modbus_diagnostic_read_delay` | `500ms` | Delay between the button's three read requests |
+| `huawei_modbus_diagnostic_response_timeout` | `15s` | Overall timeout for the response-driven TOU read sequence |
 | `huawei_tlv_ref` | `main` | External-component Git ref |
 | `huawei_tlv_refresh` | `0s` | External-component refresh interval; always refresh avoids package/component version skew |
 
@@ -213,22 +213,22 @@ enabled and pressed, it reads these holding registers once, in order:
 2. `47086 (0xB7EE)`, one register: battery working-mode setting.
 3. `47299 (0xB8C3)`, one register: excess-PV behavior in TOU mode.
 
-The host configuration must add a TX pin to `huawei_emma_uart`. Add
-`flow_control_pin` as well when the RS485 transceiver does not provide automatic
-direction control:
+The host configuration must add a TX pin to `huawei_emma_uart`. On a LILYGO
+T-CAN485, the UART uses GPIO21 for RX and GPIO22 for TX, and its MAX13487E
+provides automatic direction control:
 
 ```yaml
 uart:
   id: huawei_emma_uart
-  tx_pin: GPIO17          # Replace with the pin connected to DI/TX.
-  flow_control_pin: GPIO4 # Replace with the pin connected to DE + /RE.
+  tx_pin: GPIO22
 ```
 
-The example pins are placeholders, not package defaults. A manual read makes
-the ESP another Modbus master. Use it only in a controlled test window or on a
-bus where ownership has been arranged; pressing it while EMMA is transmitting
-can cause a collision. Requests are separated by 500 ms and repeated button
-presses cannot overlap.
+Other transceivers may also require `flow_control_pin`. A manual read makes the
+ESP another Modbus master. Use it only in a controlled test window or on a bus
+where ownership has been arranged; pressing it while EMMA is transmitting can
+cause a collision. The sequence waits for the complete response to each read
+before sending the next request, aborts after 15 seconds if a response is
+missing, and prevents repeated button presses from overlapping.
 
 ## Local development
 

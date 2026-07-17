@@ -219,6 +219,21 @@ struct HpModbusReadRequest {
 
 static HpModbusReadRequest hp_modbus_last_read_request;
 
+enum class HpTouDiagnosticReadStage : uint8_t {
+  IDLE,
+  WAIT_TOU_PERIODS,
+  WAIT_WORKING_MODE,
+  WAIT_EXCESS_PV,
+};
+
+struct HpTouDiagnosticReadSequence {
+  HpTouDiagnosticReadStage stage{HpTouDiagnosticReadStage::IDLE};
+  esphome::uart::UARTComponent *uart{nullptr};
+  uint8_t device_id{HP_DEV_INVERTER};
+};
+
+static HpTouDiagnosticReadSequence hp_tou_diagnostic_read;
+
 static inline bool hp_tlv_type_size(uint8_t type, size_t *out_size);
 static inline uint32_t hp_u32be(const std::vector<uint8_t> &bytes, size_t pos);
 static inline void hp_publish_optional_text_sensor(const char *entity_name, const std::string &value);
@@ -751,6 +766,82 @@ static inline void huawei_modbus_send_read_request(esphome::uart::UARTComponent 
            hp_hex_slice(frame, 0, frame.size()).c_str());
   uart->write_array(frame.data(), frame.size());
   uart->flush();
+}
+
+static inline bool huawei_modbus_tou_read_sequence_active() {
+  return hp_tou_diagnostic_read.stage != HpTouDiagnosticReadStage::IDLE;
+}
+
+static inline uint16_t hp_modbus_tou_expected_register() {
+  switch (hp_tou_diagnostic_read.stage) {
+    case HpTouDiagnosticReadStage::WAIT_TOU_PERIODS:
+      return HP_REG_BATTERY_TOU_PERIODS;
+    case HpTouDiagnosticReadStage::WAIT_WORKING_MODE:
+      return HP_REG_BATTERY_WORKING_MODE_SETTING;
+    case HpTouDiagnosticReadStage::WAIT_EXCESS_PV:
+      return HP_REG_BATTERY_TOU_EXCESS_PV;
+    default:
+      return 0;
+  }
+}
+
+static inline uint16_t hp_modbus_tou_expected_register_count() {
+  return hp_tou_diagnostic_read.stage == HpTouDiagnosticReadStage::WAIT_TOU_PERIODS
+             ? HP_BATTERY_TOU_PERIOD_WORDS
+             : 1;
+}
+
+static inline bool hp_modbus_tou_response_matches(uint8_t device_id, uint8_t function, uint8_t byte_count) {
+  return huawei_modbus_tou_read_sequence_active() &&
+         device_id == hp_tou_diagnostic_read.device_id && function == 0x03 &&
+         byte_count == 2 * hp_modbus_tou_expected_register_count();
+}
+
+static inline void huawei_modbus_abort_tou_read_sequence(const char *reason = "response timeout") {
+  if (!huawei_modbus_tou_read_sequence_active())
+    return;
+  ESP_LOGW(HUAWEI_MODBUS_TAG,
+           "DIAGNOSTIC TOU read sequence aborted while waiting for 0x%04X(%u): %s",
+           hp_modbus_tou_expected_register(), hp_modbus_tou_expected_register(), reason);
+  hp_tou_diagnostic_read.stage = HpTouDiagnosticReadStage::IDLE;
+  hp_tou_diagnostic_read.uart = nullptr;
+  hp_modbus_last_read_request.valid = false;
+}
+
+static inline void huawei_modbus_start_tou_read_sequence(esphome::uart::UARTComponent *uart, uint8_t device_id) {
+  if (huawei_modbus_tou_read_sequence_active()) {
+    ESP_LOGW(HUAWEI_MODBUS_TAG, "DIAGNOSTIC TOU read sequence already active");
+    return;
+  }
+  hp_tou_diagnostic_read = {HpTouDiagnosticReadStage::WAIT_TOU_PERIODS, uart, device_id};
+  ESP_LOGI(HUAWEI_MODBUS_TAG, "DIAGNOSTIC TOU read sequence started for dev=%u", device_id);
+  huawei_modbus_send_read_request(uart, device_id, HP_REG_BATTERY_TOU_PERIODS,
+                                  HP_BATTERY_TOU_PERIOD_WORDS);
+}
+
+static inline void hp_modbus_advance_tou_read_sequence() {
+  if (!huawei_modbus_tou_read_sequence_active() || hp_tou_diagnostic_read.uart == nullptr)
+    return;
+  const uint8_t device_id = hp_tou_diagnostic_read.device_id;
+  switch (hp_tou_diagnostic_read.stage) {
+    case HpTouDiagnosticReadStage::WAIT_TOU_PERIODS:
+      hp_tou_diagnostic_read.stage = HpTouDiagnosticReadStage::WAIT_WORKING_MODE;
+      huawei_modbus_send_read_request(hp_tou_diagnostic_read.uart, device_id,
+                                      HP_REG_BATTERY_WORKING_MODE_SETTING, 1);
+      return;
+    case HpTouDiagnosticReadStage::WAIT_WORKING_MODE:
+      hp_tou_diagnostic_read.stage = HpTouDiagnosticReadStage::WAIT_EXCESS_PV;
+      huawei_modbus_send_read_request(hp_tou_diagnostic_read.uart, device_id,
+                                      HP_REG_BATTERY_TOU_EXCESS_PV, 1);
+      return;
+    case HpTouDiagnosticReadStage::WAIT_EXCESS_PV:
+      ESP_LOGI(HUAWEI_MODBUS_TAG, "DIAGNOSTIC TOU read sequence complete for dev=%u", device_id);
+      hp_tou_diagnostic_read.stage = HpTouDiagnosticReadStage::IDLE;
+      hp_tou_diagnostic_read.uart = nullptr;
+      return;
+    default:
+      return;
+  }
 }
 
 static inline bool hp_is_count_u16_tag(uint16_t tag) {
@@ -3287,12 +3378,18 @@ static inline void hp_log_generic_modbus_frame(const std::vector<uint8_t> &bytes
 
   if (kind == HpModbusFrameKind::READ_RESPONSE) {
     const uint8_t byte_count = bytes[start + 2];
-    const bool correlated = hp_modbus_last_read_request.valid &&
-                            hp_modbus_last_read_request.device_id == device_id &&
-                            hp_modbus_last_read_request.function == function;
+    const bool diagnostic_correlated = hp_modbus_tou_response_matches(device_id, function, byte_count);
+    const bool ordinary_correlated = hp_modbus_last_read_request.valid &&
+                                     hp_modbus_last_read_request.device_id == device_id &&
+                                     hp_modbus_last_read_request.function == function;
+    const bool correlated = diagnostic_correlated || ordinary_correlated;
     if (correlated) {
-      const uint16_t first_register = hp_modbus_last_read_request.start_register;
-      const uint16_t register_count = hp_modbus_last_read_request.register_count;
+      const uint16_t first_register = diagnostic_correlated
+                                          ? hp_modbus_tou_expected_register()
+                                          : hp_modbus_last_read_request.start_register;
+      const uint16_t register_count = diagnostic_correlated
+                                          ? hp_modbus_tou_expected_register_count()
+                                          : hp_modbus_last_read_request.register_count;
       std::string known_field;
       if (function >= 0x03 && first_register <= HP_REG_BATTERY_REMAINING_CHARGE_DISCHARGE_TIME &&
           static_cast<uint32_t>(first_register) + register_count >
@@ -3310,7 +3407,10 @@ static inline void hp_log_generic_modbus_frame(const std::vector<uint8_t> &bytes
                "RTU dev=%u fc=0x%02X %s response start=0x%04X(%u) requested=%u data_bytes=%u%s data=%s",
                device_id, function, function_name, first_register, first_register, register_count, byte_count,
                known_field.c_str(), hp_hex_slice(bytes, start + 3, byte_count).c_str());
-      hp_modbus_last_read_request.valid = false;
+      if (ordinary_correlated)
+        hp_modbus_last_read_request.valid = false;
+      if (diagnostic_correlated)
+        hp_modbus_advance_tou_read_sequence();
     } else {
       ESP_LOGI(HUAWEI_MODBUS_TAG, "RTU dev=%u fc=0x%02X %s uncorrelated-response data_bytes=%u data=%s raw=%s",
                device_id, function, function_name, byte_count,
@@ -3351,6 +3451,9 @@ static inline void hp_log_generic_modbus_frame(const std::vector<uint8_t> &bytes
   if (kind == HpModbusFrameKind::EXCEPTION) {
     ESP_LOGW(HUAWEI_MODBUS_TAG, "RTU dev=%u fc=0x%02X %s exception=0x%02X (%s) raw=%s", device_id,
              function, function_name, bytes[start + 2], hp_modbus_exception_name(bytes[start + 2]), raw.c_str());
+    if (huawei_modbus_tou_read_sequence_active() && device_id == hp_tou_diagnostic_read.device_id &&
+        (function & 0x7F) == 0x03)
+      huawei_modbus_abort_tou_read_sequence("Modbus exception response");
     return;
   }
 
@@ -3438,10 +3541,13 @@ static inline void huawei_decode_generic_modbus_uart_buffer(const std::vector<ui
                                  hp_modbus_crc_matches(hp_modbus_uart_pending, p, request_end);
       const bool response_valid = response_shape && response_end <= hp_modbus_uart_pending.size() &&
                                   hp_modbus_crc_matches(hp_modbus_uart_pending, p, response_end);
+      const bool diagnostic_response = response_valid &&
+                                       hp_modbus_tou_response_matches(hp_modbus_uart_pending[p], function,
+                                                                      byte_count);
       const bool expecting_response = hp_modbus_last_read_request.valid &&
                                       hp_modbus_last_read_request.device_id == hp_modbus_uart_pending[p] &&
                                       hp_modbus_last_read_request.function == function;
-      if (response_valid && (expecting_response || !request_valid)) {
+      if (response_valid && (diagnostic_response || expecting_response || !request_valid)) {
         kind = HpModbusFrameKind::READ_RESPONSE;
         frame_end = response_end;
       } else if (request_valid) {
