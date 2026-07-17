@@ -32,7 +32,9 @@ writes are prefixed with `CONTROL`, making EMMA control traffic easy to filter:
 [I][huawei_modbus] CONTROL RTU dev=12 fc=0x10 write-multiple-registers request start=0xB897(47255) ...
 ```
 
-This is passive logging only; the package never transmits Modbus commands.
+Normal operation is passive and the package never polls automatically. A
+disabled-by-default diagnostic button can send three explicit holding-register
+reads when UART TX has been configured; see **Manual TOU diagnostic read**.
 
 <img width="340" height="600" alt="image" src="https://github.com/user-attachments/assets/51cc1595-2606-4c61-9bd0-3767fc68c8fc" /><img width="340" height="600" alt="image" src="https://github.com/user-attachments/assets/2e5d098b-9de5-4e64-bda9-798912a8eca6" />
 
@@ -182,9 +184,9 @@ preferably isolated RS485 receiver/transceiver:
 
 1. Connect the bus A/B pair to the receiver A/B terminals.
 2. Connect the receiver's RO output to `${huawei_uart_rx_pin}`.
-3. Hold the receiver/transceiver in receive-only mode. The supplied base
-   package never transmits and does not configure board-specific DE, RE,
-   power-enable, or LED pins.
+3. Hold the receiver/transceiver in receive-only mode for passive monitoring.
+   The package does not configure board-specific TX, DE, RE, power-enable, or
+   LED pins.
 4. Add any enable pins required by your chosen board to your local YAML.
 5. From EMMA terminal block you can get +12 V
 
@@ -197,8 +199,36 @@ these substitutions in the local file when necessary:
 | `huawei_uart_baud_rate` | `9600` | Bus baud rate |
 | `huawei_uart_rx_buffer_size` | `512` | ESPHome UART receive buffer |
 | `huawei_log_level` | `INFO` | Decoder log level |
+| `huawei_modbus_inverter_device_id` | `12` | Inverter address used by the manual TOU diagnostic button |
+| `huawei_modbus_diagnostic_read_delay` | `500ms` | Delay between the button's three read requests |
 | `huawei_tlv_ref` | `main` | External-component Git ref |
 | `huawei_tlv_refresh` | `0s` | External-component refresh interval; always refresh avoids package/component version skew |
+
+### Manual TOU diagnostic read
+
+`ZZ Reverse Engineering - Read TOU Configuration` is disabled by default. When
+enabled and pressed, it reads these holding registers once, in order:
+
+1. `47255 (0xB897)`, 43 registers: TOU charging/discharging periods.
+2. `47086 (0xB7EE)`, one register: battery working-mode setting.
+3. `47299 (0xB8C3)`, one register: excess-PV behavior in TOU mode.
+
+The host configuration must add a TX pin to `huawei_emma_uart`. Add
+`flow_control_pin` as well when the RS485 transceiver does not provide automatic
+direction control:
+
+```yaml
+uart:
+  id: huawei_emma_uart
+  tx_pin: GPIO17          # Replace with the pin connected to DI/TX.
+  flow_control_pin: GPIO4 # Replace with the pin connected to DE + /RE.
+```
+
+The example pins are placeholders, not package defaults. A manual read makes
+the ESP another Modbus master. Use it only in a controlled test window or on a
+bus where ownership has been arranged; pressing it while EMMA is transmitting
+can cause a collision. Requests are separated by 500 ms and repeated button
+presses cannot overlap.
 
 ## Local development
 
@@ -292,9 +322,11 @@ function, which this repository also recognizes, but the protocol carries much
 more than file transfers. Sub-function `0x89` is used for reports, while
 sub-function `0x35` carries control and sensor data.
 
-Huawei EMMA RS485 TLV Decoder connects to the same RS485 bus as a passive
-listener. It observes this control traffic and decodes the values into Home
-Assistant sensors without adding another master or transmitting on the bus.
+Huawei EMMA RS485 TLV Decoder normally connects to the same RS485 bus as a
+passive listener. It observes this control traffic and decodes the values into
+Home Assistant sensors without automatic polling. The optional manual TOU
+diagnostic read is the sole transmit path and requires explicit TX hardware
+configuration and a button press.
 
 All sensor tags and payload formats supported by this project have been
 reverse-engineered from captured traffic. No public documentation is currently

@@ -50,6 +50,22 @@ class GenericModbusLoggerTests(unittest.TestCase):
         self.assertIn("huawei_decode_generic_modbus_uart_buffer(bytes);", package)
         self.assertIn("huawei_modbus: ${huawei_log_level}", package)
 
+    def test_manual_tou_probe_reads_expected_registers_in_order(self):
+        source = DECODER.read_text(encoding="utf-8")
+        package = PACKAGE.read_text(encoding="utf-8")
+
+        self.assertIn("huawei_modbus_send_read_request", source)
+        self.assertIn("HP_REG_BATTERY_TOU_EXCESS_PV = 0xB8C3", source)
+
+        tou = package.index("HP_REG_BATTERY_TOU_PERIODS")
+        mode = package.index("HP_REG_BATTERY_WORKING_MODE_SETTING", tou)
+        excess_pv = package.index("HP_REG_BATTERY_TOU_EXCESS_PV", mode)
+        self.assertLess(tou, mode)
+        self.assertLess(mode, excess_pv)
+        self.assertIn("HP_BATTERY_TOU_PERIOD_WORDS", package[tou:mode])
+        self.assertIn('name: "ZZ Reverse Engineering - Read TOU Configuration"', package)
+        self.assertIn("disabled_by_default: true", package)
+
 
 if __name__ == "__main__":
     unittest.main()

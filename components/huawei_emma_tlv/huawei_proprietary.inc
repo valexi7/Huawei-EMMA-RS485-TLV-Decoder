@@ -94,6 +94,7 @@ static constexpr uint16_t HP_REG_BATTERY_WORKING_MODE_SETTING = 0xB7EE;
 static constexpr uint16_t HP_REG_BATTERY_CHARGE_FROM_GRID = 0xB7EF;
 static constexpr uint16_t HP_REG_BATTERY_GRID_CHARGE_CUTOFF_SOC = 0xB7F0;
 static constexpr uint16_t HP_REG_BATTERY_TOU_PERIODS = 0xB897;
+static constexpr uint16_t HP_REG_BATTERY_TOU_EXCESS_PV = 0xB8C3;
 static constexpr size_t HP_BATTERY_TOU_PERIOD_WORDS = 43;
 static constexpr size_t HP_BATTERY_TOU_MAX_PERIODS = 14;
 static constexpr uint16_t HP_TAG_INVERTER_SOLAR_PV = 0x7E44;         // 0x35 words=4 i32[2], PV1/PV2 watts
@@ -725,6 +726,31 @@ static inline bool hp_modbus_crc_matches(const std::vector<uint8_t> &bytes, size
   const uint16_t expected = static_cast<uint16_t>(bytes[end - 2]) |
                             (static_cast<uint16_t>(bytes[end - 1]) << 8);
   return hp_modbus_crc(bytes, start, end - start - 2) == expected;
+}
+
+static inline void huawei_modbus_send_read_request(esphome::uart::UARTComponent *uart, uint8_t device_id,
+                                                   uint16_t first_register, uint16_t register_count) {
+  std::vector<uint8_t> frame{
+      device_id,
+      0x03,
+      static_cast<uint8_t>(first_register >> 8),
+      static_cast<uint8_t>(first_register & 0xFF),
+      static_cast<uint8_t>(register_count >> 8),
+      static_cast<uint8_t>(register_count & 0xFF),
+  };
+  const uint16_t crc = hp_modbus_crc(frame, 0, frame.size());
+  frame.push_back(static_cast<uint8_t>(crc & 0xFF));
+  frame.push_back(static_cast<uint8_t>(crc >> 8));
+
+  // UART debug is configured for RX only, so remember locally generated
+  // requests here to let the ordinary Modbus decoder label their responses.
+  hp_modbus_last_read_request = {true, device_id, 0x03, first_register, register_count};
+  ESP_LOGI(HUAWEI_MODBUS_TAG,
+           "DIAGNOSTIC TX dev=%u fc=0x03 read-holding-registers start=0x%04X(%u) count=%u raw=%s",
+           device_id, first_register, first_register, register_count,
+           hp_hex_slice(frame, 0, frame.size()).c_str());
+  uart->write_array(frame.data(), frame.size());
+  uart->flush();
 }
 
 static inline bool hp_is_count_u16_tag(uint16_t tag) {
