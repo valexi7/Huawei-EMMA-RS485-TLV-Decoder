@@ -67,7 +67,8 @@ class GenericModbusLoggerTests(unittest.TestCase):
         self.assertIn("wait_until:", package)
         self.assertIn("huawei_modbus_diagnostic_response_timeout", package)
         self.assertNotIn("huawei_modbus_diagnostic_read_delay", package)
-        self.assertIn('name: "ZZ Reverse Engineering - Read TOU Configuration"', package)
+        self.assertIn('name: "Battery TOU Read Configuration"', package)
+        self.assertNotIn('name: "ZZ Reverse Engineering - Read TOU Configuration"', package)
         self.assertIn("disabled_by_default: true", package)
 
     def test_response_driven_probe_resolves_dual_valid_read_shape(self):
@@ -79,6 +80,54 @@ class GenericModbusLoggerTests(unittest.TestCase):
         self.assertEqual(modbus_crc(ambiguous[:-2]), int.from_bytes(ambiguous[-2:], "little"))
         self.assertIn("diagnostic_response || expecting_response || !request_valid", source)
         self.assertIn("hp_modbus_tou_response_matches", source)
+
+    def test_tou_editor_is_disabled_and_writes_only_changed_groups(self):
+        source = DECODER.read_text(encoding="utf-8")
+        package = PACKAGE.read_text(encoding="utf-8")
+
+        for entity_id in (
+            "battery_working_mode_control",
+            "battery_excess_pv_behavior_control",
+            "battery_tou_selected_period",
+            "battery_tou_period_action",
+            "battery_tou_period_days",
+            "battery_tou_period_start",
+            "battery_tou_period_end",
+            "battery_tou_clear_selected_period_button",
+            "battery_tou_write_configuration_button",
+        ):
+            entity = package.index(f"id: {entity_id}")
+            self.assertIn("disabled_by_default: true", package[entity : entity + 300])
+
+        self.assertIn("hp_tou_editor_schedule_changed()", source)
+        self.assertIn("hp_tou_editor_excess_pv_changed()", source)
+        self.assertIn("hp_tou_editor_working_mode_changed()", source)
+        self.assertIn('"Battery TOU configuration is unchanged; no registers written"', source)
+        self.assertIn("hp_tou_write.verification_seen == 0x07", source)
+        self.assertIn("hp_tou_store_readback(bytes, start + 3, byte_count, first_register);", source)
+
+        sequence = source.index("static inline void hp_tou_send_next_write")
+        schedule = source.index("HP_REG_BATTERY_TOU_PERIODS", sequence)
+        excess = source.index("HP_REG_BATTERY_TOU_EXCESS_PV", schedule)
+        mode = source.index("HP_REG_BATTERY_WORKING_MODE_SETTING", excess)
+        self.assertLess(schedule, excess)
+        self.assertLess(excess, mode)
+
+    def test_working_mode_control_options_follow_register_values(self):
+        package = PACKAGE.read_text(encoding="utf-8")
+        start = package.index("id: battery_working_mode_control")
+        end = package.index("id: battery_excess_pv_behavior_control", start)
+        control = package[start:end]
+        options = [
+            "Adaptive",
+            "Fixed charge/discharge",
+            "Maximum self-consumption",
+            "Time of use (LG RESU)",
+            "Fully fed to grid",
+            "TOU (LUNA2000)",
+        ]
+        positions = [control.index(f'- "{option}"') for option in options]
+        self.assertEqual(positions, sorted(positions))
 
 
 if __name__ == "__main__":

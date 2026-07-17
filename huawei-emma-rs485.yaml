@@ -5,6 +5,7 @@ substitutions:
   huawei_log_level: INFO
   huawei_modbus_inverter_device_id: "12"
   huawei_modbus_diagnostic_response_timeout: 15s
+  huawei_modbus_tou_write_timeout: 30s
   huawei_tlv_ref: main
   # Always update the nested external component when this package is refreshed.
   # This prevents a new YAML package from compiling against an older cached .inc.
@@ -71,15 +72,185 @@ script:
       - lambda: |-
           huawei_modbus_abort_tou_read_sequence();
 
+  # Writes only values that differ from the last verified readback. Changed
+  # schedule data is written first, working mode last, and all three settings
+  # are read back before the sequence is considered complete.
+  - id: huawei_write_tou_configuration
+    mode: single
+    then:
+      - lambda: |-
+          huawei_modbus_start_tou_write_sequence(id(huawei_emma_uart),
+                                                 ${huawei_modbus_inverter_device_id});
+      - wait_until:
+          condition:
+            lambda: |-
+              return !huawei_modbus_tou_write_sequence_active();
+          timeout: ${huawei_modbus_tou_write_timeout}
+      - lambda: |-
+          huawei_modbus_abort_tou_write_sequence();
+
+select:
+  - platform: template
+    id: battery_working_mode_control
+    name: "Battery Working Mode Setting Control"
+    icon: mdi:battery-cog
+    entity_category: config
+    disabled_by_default: true
+    update_interval: 1s
+    options:
+      - "Adaptive"
+      - "Fixed charge/discharge"
+      - "Maximum self-consumption"
+      - "Time of use (LG RESU)"
+      - "Fully fed to grid"
+      - "TOU (LUNA2000)"
+    lambda: |-
+      return huawei_tou_editor_working_mode_option();
+    set_action:
+      - lambda: |-
+          huawei_tou_editor_set_working_mode(x);
+
+  - platform: template
+    id: battery_excess_pv_behavior_control
+    name: "Battery Excess PV Behavior"
+    icon: mdi:solar-power-variant
+    entity_category: config
+    disabled_by_default: true
+    update_interval: 1s
+    options:
+      - "Feed to grid"
+      - "Charge"
+    lambda: |-
+      return huawei_tou_editor_excess_pv_option();
+    set_action:
+      - lambda: |-
+          huawei_tou_editor_set_excess_pv(x);
+
+  - platform: template
+    id: battery_tou_selected_period
+    name: "Battery TOU Selected Period"
+    icon: mdi:numeric
+    entity_category: config
+    disabled_by_default: true
+    optimistic: true
+    initial_option: "1"
+    options:
+      - "1"
+      - "2"
+      - "3"
+      - "4"
+      - "5"
+      - "6"
+      - "7"
+      - "8"
+      - "9"
+      - "10"
+      - "11"
+      - "12"
+      - "13"
+      - "14"
+    on_value:
+      - lambda: |-
+          huawei_tou_editor_select_period(i);
+
+  - platform: template
+    id: battery_tou_period_action
+    name: "Battery TOU Period Action"
+    icon: mdi:battery-arrow-up-down
+    entity_category: config
+    disabled_by_default: true
+    update_interval: 1s
+    options:
+      - "Charge"
+      - "Discharge"
+    lambda: |-
+      return huawei_tou_editor_action_option();
+    set_action:
+      - lambda: |-
+          huawei_tou_editor_set_action(x);
+
+  - platform: template
+    id: battery_tou_period_days
+    name: "Battery TOU Period Days"
+    icon: mdi:calendar-week
+    entity_category: config
+    disabled_by_default: true
+    update_interval: 1s
+    options:
+      - "Every day"
+      - "Weekdays"
+      - "Weekend"
+      - "Sunday"
+      - "Monday"
+      - "Tuesday"
+      - "Wednesday"
+      - "Thursday"
+      - "Friday"
+      - "Saturday"
+      - "Custom (preserved)"
+    lambda: |-
+      return huawei_tou_editor_day_mask_option();
+    set_action:
+      - lambda: |-
+          huawei_tou_editor_set_day_mask(x);
+
+datetime:
+  - platform: template
+    id: battery_tou_period_start
+    name: "Battery TOU Period Start"
+    icon: mdi:clock-start
+    type: time
+    entity_category: config
+    disabled_by_default: true
+    update_interval: 1s
+    lambda: |-
+      return huawei_tou_editor_period_time(true);
+    set_action:
+      - lambda: |-
+          huawei_tou_editor_set_period_time(true, x.hour, x.minute);
+
+  - platform: template
+    id: battery_tou_period_end
+    name: "Battery TOU Period End"
+    icon: mdi:clock-end
+    type: time
+    entity_category: config
+    disabled_by_default: true
+    update_interval: 1s
+    lambda: |-
+      return huawei_tou_editor_period_time(false);
+    set_action:
+      - lambda: |-
+          huawei_tou_editor_set_period_time(false, x.hour, x.minute);
+
 button:
   - platform: template
     id: huawei_read_tou_configuration_button
-    name: "ZZ Reverse Engineering - Read TOU Configuration"
+    name: "Battery TOU Read Configuration"
     icon: mdi:database-search
     entity_category: diagnostic
     disabled_by_default: true
     on_press:
       - script.execute: huawei_read_tou_configuration
+
+  - platform: template
+    id: battery_tou_clear_selected_period_button
+    name: "Battery TOU Clear Selected Period"
+    icon: mdi:calendar-remove
+    entity_category: config
+    disabled_by_default: true
+    on_press:
+      - lambda: |-
+          huawei_tou_editor_clear_selected_period();
+
+  - platform: template
+    id: battery_tou_write_configuration_button
+    name: "Battery TOU Write Configuration"
+    icon: mdi:content-save-cog
+    entity_category: config
+    disabled_by_default: true
+    on_press:
+      - script.execute: huawei_write_tou_configuration
 
 text_sensor:
   - platform: template
@@ -324,7 +495,7 @@ text_sensor:
   - platform: template
     id: battery_working_mode_setting
     name: "Battery Working Mode Setting"
-    icon: mdi:battery-cog
+    icon: mdi:battery-cog-outline
     entity_category: diagnostic
     lambda: |-
       return std::nullopt;

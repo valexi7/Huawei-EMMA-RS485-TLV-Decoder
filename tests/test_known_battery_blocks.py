@@ -118,15 +118,27 @@ class KnownBatteryBlockTests(unittest.TestCase):
 
     def test_luna_tou_schedule_layout(self):
         payload = bytearray(43 * 2)
-        payload[0:2] = (1).to_bytes(2, "big")
+        payload[0:2] = (2).to_bytes(2, "big")
         payload[2:4] = (18 * 60).to_bytes(2, "big")
         payload[4:6] = (10 * 60).to_bytes(2, "big")
         payload[6] = 1  # Discharge
         payload[7] = 0x7F  # Every day
-        self.assertEqual(read_field(0xB897, 43, payload, 0xB897, 1), 1)
+        payload[8:10] = (10 * 60).to_bytes(2, "big")
+        payload[10:12] = (18 * 60).to_bytes(2, "big")
+        payload[12] = 0  # Charge
+        payload[13] = 0x3E  # Weekdays
+        self.assertEqual(read_field(0xB897, 43, payload, 0xB897, 1), 2)
         self.assertEqual(read_field(0xB897, 43, payload, 0xB898, 1), 18 * 60)
         self.assertEqual(read_field(0xB897, 43, payload, 0xB899, 1), 10 * 60)
         self.assertEqual(payload[6:8], bytes([1, 0x7F]))
+        self.assertEqual(read_field(0xB897, 43, payload, 0xB89B, 1), 10 * 60)
+        self.assertEqual(read_field(0xB897, 43, payload, 0xB89C, 1), 18 * 60)
+        self.assertEqual(payload[12:14], bytes([0, 0x3E]))
+
+        source = DECODER.read_text(encoding="utf-8")
+        self.assertIn("for (size_t index = 0; index < count; index++)", source)
+        self.assertIn('out += "; ";', source)
+        self.assertIn('"%u:%s %02u:%02u-%02u:%02u "', source)
 
     def test_pack_2_identity_is_at_byte_18_and_firmware_at_byte_38(self):
         payload = block_with_fields(
