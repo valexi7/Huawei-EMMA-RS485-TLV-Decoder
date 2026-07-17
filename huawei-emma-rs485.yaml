@@ -228,7 +228,7 @@ button:
     id: huawei_read_tou_configuration_button
     name: "Battery TOU Read Configuration"
     icon: mdi:database-search
-    entity_category: diagnostic
+    entity_category: config
     disabled_by_default: true
     on_press:
       - script.execute: huawei_read_tou_configuration
