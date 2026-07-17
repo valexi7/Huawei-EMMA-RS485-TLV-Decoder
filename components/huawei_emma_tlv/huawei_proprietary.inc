@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <ctime>
 #include <optional>
@@ -222,6 +223,17 @@ struct HpModbusReadRequest {
 
 static HpModbusReadRequest hp_modbus_last_read_request;
 
+struct HpModbusDiagnosticRequest {
+  bool active{false};
+  uint8_t device_id{0};
+  uint8_t function{0};
+  uint16_t start_register{0};
+  uint16_t register_count{0};
+  uint16_t write_value{0};
+};
+
+static HpModbusDiagnosticRequest hp_modbus_diagnostic_request;
+
 enum class HpTouDiagnosticReadStage : uint8_t {
   IDLE,
   WAIT_TOU_PERIODS,
@@ -280,9 +292,12 @@ struct HpTouWriteSequence {
 
 static HpTouWriteSequence hp_tou_write;
 
+static inline bool huawei_modbus_tou_read_sequence_active();
 static inline bool huawei_modbus_tou_write_sequence_active();
 static inline void huawei_modbus_abort_tou_write_sequence(const char *reason = "response timeout");
 static inline void hp_tou_finish_write_verification();
+static inline bool huawei_modbus_diagnostic_request_active();
+static inline const char *hp_modbus_function_name(uint8_t function);
 
 static inline bool hp_tlv_type_size(uint8_t type, size_t *out_size);
 static inline uint32_t hp_u32be(const std::vector<uint8_t> &bytes, size_t pos);
@@ -866,6 +881,177 @@ static inline void hp_modbus_send_write_multiple_registers(
   uart->flush();
 }
 
+static inline bool huawei_modbus_diagnostic_request_active() {
+  return hp_modbus_diagnostic_request.active;
+}
+
+static inline bool hp_modbus_parse_diagnostic_words(const std::string &input,
+                                                     std::vector<uint16_t> *words) {
+  words->clear();
+  size_t pos = 0;
+  while (pos < input.size()) {
+    while (pos < input.size() &&
+           (input[pos] == ' ' || input[pos] == '\t' || input[pos] == ',' ||
+            input[pos] == ';' || input[pos] == '\r' || input[pos] == '\n'))
+      pos++;
+    if (pos == input.size())
+      break;
+    const size_t start = pos;
+    while (pos < input.size() && input[pos] != ' ' && input[pos] != '\t' &&
+           input[pos] != ',' && input[pos] != ';' && input[pos] != '\r' &&
+           input[pos] != '\n')
+      pos++;
+    std::string token = input.substr(start, pos - start);
+    if (token.size() > 2 && token[0] == '0' && (token[1] == 'x' || token[1] == 'X'))
+      token.erase(0, 2);
+    if (token.empty())
+      return false;
+    char *end = nullptr;
+    const unsigned long value = std::strtoul(token.c_str(), &end, 16);
+    if (end == token.c_str() || *end != '\0' || value > 0xFFFFUL)
+      return false;
+    words->push_back(static_cast<uint16_t>(value));
+  }
+  return !words->empty();
+}
+
+static inline uint8_t hp_modbus_diagnostic_function(const std::string &option) {
+  if (option.find("0x03") != std::string::npos)
+    return 0x03;
+  if (option.find("0x04") != std::string::npos)
+    return 0x04;
+  if (option.find("0x06") != std::string::npos)
+    return 0x06;
+  if (option.find("0x10") != std::string::npos)
+    return 0x10;
+  return 0;
+}
+
+static inline void huawei_modbus_send_diagnostic_request(
+    esphome::uart::UARTComponent *uart, uint16_t device_id_input,
+    const std::string &function_option, uint16_t first_register,
+    uint16_t register_count, const std::string &write_request) {
+  id(modbus_diagnostic_response).publish_state("No response");
+  if (uart == nullptr || device_id_input > 0xFF) {
+    ESP_LOGE(HUAWEI_MODBUS_TAG, "Modbus diagnostic request has an invalid UART or device ID");
+    return;
+  }
+  if (huawei_modbus_diagnostic_request_active() ||
+      huawei_modbus_tou_read_sequence_active() ||
+      huawei_modbus_tou_write_sequence_active()) {
+    ESP_LOGW(HUAWEI_MODBUS_TAG, "Modbus diagnostic request blocked while another operation is active");
+    return;
+  }
+
+  const uint8_t function = hp_modbus_diagnostic_function(function_option);
+  if ((function == 0x03 || function == 0x04) &&
+      (register_count == 0 || register_count > 125)) {
+    ESP_LOGE(HUAWEI_MODBUS_TAG, "Modbus diagnostic read word count must be 1..125");
+    return;
+  }
+
+  std::vector<uint16_t> words;
+  if (function == 0x06 || function == 0x10) {
+    if (!hp_modbus_parse_diagnostic_words(write_request, &words)) {
+      ESP_LOGE(HUAWEI_MODBUS_TAG,
+               "Modbus diagnostic write not sent: Write Request must contain hexadecimal words");
+      return;
+    }
+    if (function == 0x06 && words.size() != 1) {
+      ESP_LOGE(HUAWEI_MODBUS_TAG, "FC06 requires exactly one hexadecimal word");
+      return;
+    }
+    if (function == 0x10 &&
+        (register_count == 0 || register_count > 123 || words.size() != register_count)) {
+      ESP_LOGE(HUAWEI_MODBUS_TAG,
+               "FC10 requires 1..123 hexadecimal words matching Word Count");
+      return;
+    }
+  } else if (function != 0x03 && function != 0x04) {
+    ESP_LOGE(HUAWEI_MODBUS_TAG, "Unsupported Modbus diagnostic function selection");
+    return;
+  }
+
+  const uint8_t device_id = static_cast<uint8_t>(device_id_input);
+  std::vector<uint8_t> frame{
+      device_id,
+      function,
+      static_cast<uint8_t>(first_register >> 8),
+      static_cast<uint8_t>(first_register & 0xFF),
+  };
+  if (function == 0x03 || function == 0x04) {
+    frame.push_back(static_cast<uint8_t>(register_count >> 8));
+    frame.push_back(static_cast<uint8_t>(register_count & 0xFF));
+    hp_modbus_last_read_request = {
+        true, device_id, function, first_register, register_count};
+  } else if (function == 0x06) {
+    frame.push_back(static_cast<uint8_t>(words[0] >> 8));
+    frame.push_back(static_cast<uint8_t>(words[0] & 0xFF));
+  } else {
+    frame.push_back(static_cast<uint8_t>(register_count >> 8));
+    frame.push_back(static_cast<uint8_t>(register_count & 0xFF));
+    frame.push_back(static_cast<uint8_t>(register_count * 2));
+    for (uint16_t word : words) {
+      frame.push_back(static_cast<uint8_t>(word >> 8));
+      frame.push_back(static_cast<uint8_t>(word & 0xFF));
+    }
+  }
+  const uint16_t crc = hp_modbus_crc(frame, 0, frame.size());
+  frame.push_back(static_cast<uint8_t>(crc & 0xFF));
+  frame.push_back(static_cast<uint8_t>(crc >> 8));
+
+  hp_modbus_diagnostic_request = {
+      true, device_id, function, first_register, register_count,
+      static_cast<uint16_t>(words.empty() ? 0 : words[0])};
+  ESP_LOGI(HUAWEI_MODBUS_TAG,
+           "DIAGNOSTIC TX dev=%u fc=0x%02X %s start=0x%04X(%u) count=%u raw=%s",
+           device_id, function, hp_modbus_function_name(function), first_register,
+           first_register, register_count, hp_hex_slice(frame, 0, frame.size()).c_str());
+  uart->write_array(frame.data(), frame.size());
+  uart->flush();
+}
+
+static inline void huawei_modbus_finish_diagnostic_request() {
+  if (!huawei_modbus_diagnostic_request_active())
+    return;
+  ESP_LOGW(HUAWEI_MODBUS_TAG, "Modbus diagnostic request timed out without a response");
+  if (hp_modbus_last_read_request.valid &&
+      hp_modbus_last_read_request.device_id == hp_modbus_diagnostic_request.device_id &&
+      hp_modbus_last_read_request.function == hp_modbus_diagnostic_request.function)
+    hp_modbus_last_read_request.valid = false;
+  hp_modbus_diagnostic_request = {};
+}
+
+static inline bool hp_modbus_diagnostic_read_response_matches(
+    uint8_t device_id, uint8_t function, uint8_t byte_count) {
+  return huawei_modbus_diagnostic_request_active() &&
+         device_id == hp_modbus_diagnostic_request.device_id &&
+         function == hp_modbus_diagnostic_request.function &&
+         (function == 0x03 || function == 0x04) &&
+         byte_count == hp_modbus_diagnostic_request.register_count * 2;
+}
+
+static inline bool hp_modbus_diagnostic_write_response_matches(
+    uint8_t device_id, uint8_t function, uint16_t address, uint16_t value_or_count) {
+  if (!huawei_modbus_diagnostic_request_active() ||
+      device_id != hp_modbus_diagnostic_request.device_id ||
+      function != hp_modbus_diagnostic_request.function ||
+      address != hp_modbus_diagnostic_request.start_register)
+    return false;
+  if (function == 0x06)
+    return value_or_count == hp_modbus_diagnostic_request.write_value;
+  if (function == 0x10)
+    return value_or_count == hp_modbus_diagnostic_request.register_count;
+  return false;
+}
+
+static inline void hp_modbus_publish_diagnostic_response(
+    const std::vector<uint8_t> &bytes, size_t start, size_t end) {
+  id(modbus_diagnostic_response).publish_state(
+      hp_hex_slice(bytes, start, end - start));
+  hp_modbus_diagnostic_request = {};
+}
+
 static inline bool huawei_modbus_tou_read_sequence_active() {
   return hp_tou_diagnostic_read.stage != HpTouDiagnosticReadStage::IDLE;
 }
@@ -921,13 +1107,8 @@ static inline void huawei_modbus_start_tou_read_sequence(esphome::uart::UARTComp
     ESP_LOGW(HUAWEI_MODBUS_TAG, "DIAGNOSTIC TOU read sequence already active");
     return;
   }
-  if (huawei_modbus_tou_write_sequence_active()) {
-    ESP_LOGW(HUAWEI_MODBUS_TAG, "DIAGNOSTIC TOU read blocked while a write sequence is active");
-    return;
-  }
-  if (hp_tou_editor.schedule_valid && hp_tou_editor.working_mode_valid && hp_tou_editor.excess_pv_valid) {
-    ESP_LOGI(HUAWEI_MODBUS_TAG,
-             "Battery TOU configuration is already available from FC41/readback; no manual read sent");
+  if (huawei_modbus_tou_write_sequence_active() || huawei_modbus_diagnostic_request_active()) {
+    ESP_LOGW(HUAWEI_MODBUS_TAG, "DIAGNOSTIC TOU read blocked while another request is active");
     return;
   }
   hp_modbus_begin_tou_read_sequence(uart, device_id);
@@ -2337,7 +2518,8 @@ static inline void huawei_modbus_poll_tou_write_sequence() {
 
 static inline void huawei_modbus_start_tou_write_sequence(esphome::uart::UARTComponent *uart,
                                                            uint8_t device_id) {
-  if (huawei_modbus_tou_read_sequence_active() || huawei_modbus_tou_write_sequence_active()) {
+  if (huawei_modbus_tou_read_sequence_active() || huawei_modbus_tou_write_sequence_active() ||
+      huawei_modbus_diagnostic_request_active()) {
     ESP_LOGW(HUAWEI_MODBUS_TAG, "Battery TOU write blocked while another TOU operation is active");
     return;
   }
@@ -4110,19 +4292,26 @@ static inline void hp_log_generic_modbus_frame(const std::vector<uint8_t> &bytes
   if (kind == HpModbusFrameKind::READ_RESPONSE) {
     const uint8_t byte_count = bytes[start + 2];
     const bool diagnostic_correlated = hp_modbus_tou_response_matches(device_id, function, byte_count);
+    const bool modbus_diagnostic_correlated =
+        hp_modbus_diagnostic_read_response_matches(device_id, function, byte_count);
     const bool write_correlated = hp_tou_write_readback_response_matches(device_id, function, byte_count);
     const bool ordinary_correlated = hp_modbus_last_read_request.valid &&
                                      hp_modbus_last_read_request.device_id == device_id &&
                                      hp_modbus_last_read_request.function == function;
-    const bool correlated = diagnostic_correlated || write_correlated || ordinary_correlated;
+    const bool correlated = diagnostic_correlated || modbus_diagnostic_correlated ||
+                            write_correlated || ordinary_correlated;
     if (correlated) {
       const uint16_t first_register = diagnostic_correlated
                                           ? hp_modbus_tou_expected_register()
+                                          : modbus_diagnostic_correlated
+                                                ? hp_modbus_diagnostic_request.start_register
                                           : write_correlated
                                                 ? hp_tou_write_readback_expected_register()
                                                 : hp_modbus_last_read_request.start_register;
       const uint16_t register_count = diagnostic_correlated
                                           ? hp_modbus_tou_expected_register_count()
+                                          : modbus_diagnostic_correlated
+                                                ? hp_modbus_diagnostic_request.register_count
                                           : write_correlated
                                                 ? hp_tou_write_readback_expected_count()
                                                 : hp_modbus_last_read_request.register_count;
@@ -4147,6 +4336,8 @@ static inline void hp_log_generic_modbus_frame(const std::vector<uint8_t> &bytes
         hp_tou_store_readback(bytes, start + 3, byte_count, first_register);
       if (ordinary_correlated)
         hp_modbus_last_read_request.valid = false;
+      if (modbus_diagnostic_correlated)
+        hp_modbus_publish_diagnostic_response(bytes, start, end);
       if (write_correlated)
         hp_tou_handle_write_readback(first_register);
       else if (diagnostic_correlated)
@@ -4165,6 +4356,8 @@ static inline void hp_log_generic_modbus_frame(const std::vector<uint8_t> &bytes
     ESP_LOGI(HUAWEI_MODBUS_TAG,
              "CONTROL RTU dev=%u fc=0x%02X %s address=0x%04X(%u) value=0x%04X(%u) raw=%s",
              device_id, function, function_name, address, address, value, value, raw.c_str());
+    if (hp_modbus_diagnostic_write_response_matches(device_id, function, address, value))
+      hp_modbus_publish_diagnostic_response(bytes, start, end);
     if (function == 0x06)
       hp_tou_handle_write_single_ack(device_id, address, value);
     return;
@@ -4187,6 +4380,8 @@ static inline void hp_log_generic_modbus_frame(const std::vector<uint8_t> &bytes
     ESP_LOGI(HUAWEI_MODBUS_TAG,
              "CONTROL RTU dev=%u fc=0x%02X %s acknowledgement start=0x%04X(%u) count=%u raw=%s",
              device_id, function, function_name, address, address, count, raw.c_str());
+    if (hp_modbus_diagnostic_write_response_matches(device_id, function, address, count))
+      hp_modbus_publish_diagnostic_response(bytes, start, end);
     if (function == 0x10)
       hp_tou_handle_write_multiple_ack(device_id, address, count);
     return;
@@ -4195,7 +4390,11 @@ static inline void hp_log_generic_modbus_frame(const std::vector<uint8_t> &bytes
   if (kind == HpModbusFrameKind::EXCEPTION) {
     ESP_LOGW(HUAWEI_MODBUS_TAG, "RTU dev=%u fc=0x%02X %s exception=0x%02X (%s) raw=%s", device_id,
              function, function_name, bytes[start + 2], hp_modbus_exception_name(bytes[start + 2]), raw.c_str());
-    if (huawei_modbus_tou_read_sequence_active() && device_id == hp_tou_diagnostic_read.device_id &&
+    if (huawei_modbus_diagnostic_request_active() &&
+        device_id == hp_modbus_diagnostic_request.device_id &&
+        (function & 0x7F) == hp_modbus_diagnostic_request.function)
+      hp_modbus_publish_diagnostic_response(bytes, start, end);
+    else if (huawei_modbus_tou_read_sequence_active() && device_id == hp_tou_diagnostic_read.device_id &&
         (function & 0x7F) == 0x03)
       huawei_modbus_abort_tou_read_sequence("Modbus exception response");
     else if (huawei_modbus_tou_write_sequence_active() && device_id == hp_tou_write.device_id)
@@ -4288,8 +4487,10 @@ static inline void huawei_decode_generic_modbus_uart_buffer(const std::vector<ui
       const bool response_valid = response_shape && response_end <= hp_modbus_uart_pending.size() &&
                                   hp_modbus_crc_matches(hp_modbus_uart_pending, p, response_end);
       const bool diagnostic_response = response_valid &&
-                                       hp_modbus_tou_response_matches(hp_modbus_uart_pending[p], function,
-                                                                      byte_count);
+                                       (hp_modbus_tou_response_matches(hp_modbus_uart_pending[p], function,
+                                                                       byte_count) ||
+                                        hp_modbus_diagnostic_read_response_matches(
+                                            hp_modbus_uart_pending[p], function, byte_count));
       const bool expecting_response = hp_modbus_last_read_request.valid &&
                                       hp_modbus_last_read_request.device_id == hp_modbus_uart_pending[p] &&
                                       hp_modbus_last_read_request.function == function;
