@@ -66,6 +66,9 @@ class GenericModbusLoggerTests(unittest.TestCase):
 
         self.assertIn("huawei_modbus_send_read_request", source)
         self.assertIn("HP_REG_BATTERY_TOU_EXCESS_PV = 0xB8C3", source)
+        self.assertIn('huawei_modbus_tou_device_id: "0"', package)
+        self.assertIn("${huawei_modbus_tou_device_id}", package)
+        self.assertNotIn("huawei_modbus_inverter_device_id", package)
 
         sequence = source.index("static inline void hp_modbus_advance_tou_read_sequence")
         tou = source.index("WAIT_TOU_PERIODS", sequence)
@@ -77,6 +80,7 @@ class GenericModbusLoggerTests(unittest.TestCase):
         self.assertIn("wait_until:", package)
         self.assertIn("huawei_modbus_diagnostic_response_timeout", package)
         self.assertNotIn("huawei_modbus_diagnostic_read_delay", package)
+        self.assertNotIn("already available from FC41/readback; no manual read sent", source)
         self.assertIn('name: "Battery TOU Read Configuration"', package)
         self.assertNotIn('name: "ZZ Reverse Engineering - Read TOU Configuration"', package)
         self.assertIn("disabled_by_default: true", package)
@@ -152,7 +156,7 @@ class GenericModbusLoggerTests(unittest.TestCase):
         self.assertIn("hp_tou_editor_apply_working_mode(u16);", source)
         self.assertIn("hp_tou_editor_apply_excess_pv(u16);", source)
         self.assertIn("hp_tou_confirm_schedule_from_fc41(schedule);", source)
-        self.assertIn("already available from FC41/readback; no manual read sent", source)
+        self.assertNotIn("already available from FC41/readback; no manual read sent", source)
         for entity_id in (
             "battery_tou_period_start",
             "battery_tou_period_end",
@@ -165,6 +169,41 @@ class GenericModbusLoggerTests(unittest.TestCase):
         self.assertIn('name: "Battery Excess PV Behavior"', package[sensor : sensor + 250])
         self.assertIn("entity_category: diagnostic", package[sensor : sensor + 250])
         self.assertIn('name: "Battery Excess PV Behavior Control"', package)
+
+    def test_raw_modbus_controls_are_disabled_and_guard_empty_writes(self):
+        source = DECODER.read_text(encoding="utf-8")
+        package = PACKAGE.read_text(encoding="utf-8")
+
+        entities = (
+            "modbus_diagnostic_device_id",
+            "modbus_diagnostic_function_code",
+            "modbus_diagnostic_start_register",
+            "modbus_diagnostic_word_count",
+            "modbus_diagnostic_write_request",
+            "modbus_diagnostic_send_button",
+            "modbus_diagnostic_response",
+        )
+        positions = []
+        for entity_id in entities:
+            entity = package.index(f"id: {entity_id}")
+            positions.append(package.index('name: "ZZ Modbus Test - ', entity))
+            self.assertIn("disabled_by_default: true", package[entity : entity + 350])
+            self.assertIn("entity_category: diagnostic", package[entity : entity + 350])
+
+        names = [package[position : package.index("\n", position)] for position in positions]
+        prefixes = [int(name.split(" - ", 1)[1].split(" ", 1)[0]) for name in names]
+        self.assertEqual(prefixes, list(range(1, 8)))
+        self.assertIn("initial_value: 12", package)
+        self.assertIn("initial_value: 30000", package)
+        self.assertIn("initial_value: 15", package)
+        self.assertIn('initial_option: "Read Holding Registers (0x03)"', package)
+        self.assertIn('initial_value: ""', package)
+
+        self.assertIn("huawei_modbus_send_diagnostic_request", source)
+        self.assertIn("hp_modbus_parse_diagnostic_words", source)
+        self.assertIn("return !words->empty();", source)
+        self.assertIn('publish_state("No response")', source)
+        self.assertIn("hp_modbus_publish_diagnostic_response(bytes, start, end)", source)
 
 
 if __name__ == "__main__":

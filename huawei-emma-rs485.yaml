@@ -3,7 +3,7 @@ substitutions:
   huawei_uart_baud_rate: "9600"
   huawei_uart_rx_buffer_size: "512"
   huawei_log_level: INFO
-  huawei_modbus_inverter_device_id: "12"
+  huawei_modbus_tou_device_id: "0"
   huawei_modbus_diagnostic_response_timeout: 15s
   huawei_modbus_tou_write_timeout: 30s
   huawei_tlv_ref: main
@@ -63,7 +63,7 @@ script:
     then:
       - lambda: |-
           huawei_modbus_start_tou_read_sequence(id(huawei_emma_uart),
-                                                ${huawei_modbus_inverter_device_id});
+                                                ${huawei_modbus_tou_device_id});
       - wait_until:
           condition:
             lambda: |-
@@ -80,7 +80,7 @@ script:
     then:
       - lambda: |-
           huawei_modbus_start_tou_write_sequence(id(huawei_emma_uart),
-                                                 ${huawei_modbus_inverter_device_id});
+                                                 ${huawei_modbus_tou_device_id});
       - wait_until:
           condition:
             lambda: |-
@@ -90,7 +90,82 @@ script:
       - lambda: |-
           huawei_modbus_abort_tou_write_sequence();
 
+  # Disabled-by-default raw Modbus test request. This is intentionally manual
+  # and shares the same single-request guard as the TOU controls.
+  - id: huawei_send_modbus_diagnostic
+    mode: single
+    then:
+      - lambda: |-
+          huawei_modbus_send_diagnostic_request(
+              id(huawei_emma_uart),
+              static_cast<uint16_t>(id(modbus_diagnostic_device_id).state),
+              id(modbus_diagnostic_function_code).state,
+              static_cast<uint16_t>(id(modbus_diagnostic_start_register).state),
+              static_cast<uint16_t>(id(modbus_diagnostic_word_count).state),
+              id(modbus_diagnostic_write_request).state);
+      - wait_until:
+          condition:
+            lambda: |-
+              return !huawei_modbus_diagnostic_request_active();
+          timeout: ${huawei_modbus_diagnostic_response_timeout}
+      - lambda: |-
+          huawei_modbus_finish_diagnostic_request();
+
+number:
+  - platform: template
+    id: modbus_diagnostic_device_id
+    name: "ZZ Modbus Test - 1 Device ID"
+    icon: mdi:numeric
+    entity_category: diagnostic
+    disabled_by_default: true
+    optimistic: true
+    initial_value: 12
+    min_value: 0
+    max_value: 247
+    step: 1
+    mode: box
+
+  - platform: template
+    id: modbus_diagnostic_start_register
+    name: "ZZ Modbus Test - 3 Start Register"
+    icon: mdi:format-list-numbered
+    entity_category: diagnostic
+    disabled_by_default: true
+    optimistic: true
+    initial_value: 30000
+    min_value: 0
+    max_value: 65535
+    step: 1
+    mode: box
+
+  - platform: template
+    id: modbus_diagnostic_word_count
+    name: "ZZ Modbus Test - 4 Word Count"
+    icon: mdi:counter
+    entity_category: diagnostic
+    disabled_by_default: true
+    optimistic: true
+    initial_value: 15
+    min_value: 1
+    max_value: 125
+    step: 1
+    mode: box
+
 select:
+  - platform: template
+    id: modbus_diagnostic_function_code
+    name: "ZZ Modbus Test - 2 Function Code"
+    icon: mdi:function-variant
+    entity_category: diagnostic
+    disabled_by_default: true
+    optimistic: true
+    initial_option: "Read Holding Registers (0x03)"
+    options:
+      - "Read Holding Registers (0x03)"
+      - "Read Input Registers (0x04)"
+      - "Write Single Register (0x06)"
+      - "Write Multiple Registers (0x10)"
+
   - platform: template
     id: battery_working_mode_control
     name: "Battery Working Mode Setting Control"
@@ -224,7 +299,27 @@ datetime:
       - lambda: |-
           huawei_tou_editor_set_period_time(false, x.hour, x.minute);
 
+text:
+  - platform: template
+    id: modbus_diagnostic_write_request
+    name: "ZZ Modbus Test - 5 Write Request"
+    icon: mdi:code-braces
+    entity_category: diagnostic
+    disabled_by_default: true
+    optimistic: true
+    initial_value: ""
+    mode: text
+
 button:
+  - platform: template
+    id: modbus_diagnostic_send_button
+    name: "ZZ Modbus Test - 6 Modbus Send"
+    icon: mdi:send
+    entity_category: diagnostic
+    disabled_by_default: true
+    on_press:
+      - script.execute: huawei_send_modbus_diagnostic
+
   - platform: template
     id: huawei_read_tou_configuration_button
     name: "Battery TOU Read Configuration"
@@ -254,6 +349,15 @@ button:
       - script.execute: huawei_write_tou_configuration
 
 text_sensor:
+  - platform: template
+    id: modbus_diagnostic_response
+    name: "ZZ Modbus Test - 7 Modbus Response"
+    icon: mdi:message-text-outline
+    entity_category: diagnostic
+    disabled_by_default: true
+    lambda: |-
+      return std::nullopt;
+
   - platform: template
     id: huawei41_device_ids
     name: "ZZ Reverse Engineering - FC41 Device IDs"

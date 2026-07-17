@@ -32,9 +32,10 @@ writes are prefixed with `CONTROL`, making EMMA control traffic easy to filter:
 [I][huawei_modbus] CONTROL RTU dev=12 fc=0x10 write-multiple-registers request start=0xB897(47255) ...
 ```
 
-Normal operation is passive and the package never polls automatically. A
-disabled-by-default diagnostic button can send three explicit holding-register
-reads when UART TX has been configured; see **Manual TOU diagnostic read**.
+Normal operation is passive and the package never polls automatically.
+Disabled-by-default controls can send explicit TOU or raw Modbus requests when
+UART TX has been configured; see **Manual TOU configuration** and **Raw Modbus
+test controls**.
 
 <img width="340" height="600" alt="image" src="https://github.com/user-attachments/assets/51cc1595-2606-4c61-9bd0-3767fc68c8fc" /><img width="340" height="600" alt="image" src="https://github.com/user-attachments/assets/2e5d098b-9de5-4e64-bda9-798912a8eca6" />
 
@@ -199,7 +200,7 @@ these substitutions in the local file when necessary:
 | `huawei_uart_baud_rate` | `9600` | Bus baud rate |
 | `huawei_uart_rx_buffer_size` | `512` | ESPHome UART receive buffer |
 | `huawei_log_level` | `INFO` | Decoder log level |
-| `huawei_modbus_inverter_device_id` | `12` | Inverter address used by the manual TOU controls |
+| `huawei_modbus_tou_device_id` | `0` | EMMA address used by the manual TOU controls |
 | `huawei_modbus_diagnostic_response_timeout` | `15s` | Overall timeout for the response-driven TOU read sequence |
 | `huawei_modbus_tou_write_timeout` | `30s` | Overall timeout for acknowledged TOU writes and verification readback |
 | `huawei_tlv_ref` | `main` | External-component Git ref |
@@ -208,7 +209,8 @@ these substitutions in the local file when necessary:
 ### Manual TOU configuration
 
 `Battery TOU Read Configuration` remains a disabled-by-default config button.
-When enabled and pressed, it reads these holding registers once, in order:
+When enabled and pressed, it reads these holding registers from EMMA device
+address `0` once, in order:
 
 1. `47255 (0xB897)`, 43 registers: TOU charging/discharging periods.
 2. `47086 (0xB7EE)`, one register: battery working-mode setting.
@@ -232,11 +234,12 @@ before sending the next request, aborts after 15 seconds if a response is
 missing, and prevents repeated button presses from overlapping.
 
 The passive FC41 decoder also feeds complete schedule, working-mode setting,
-and excess-PV blocks into the TOU editor. When all three have already arrived,
-the manual Read button reports that configuration is available and sends no
-Modbus request. FC41 updates refresh the current values without discarding
-pending local edits. Selecting another period immediately loads that period's
-start time, end time, action, and day mask into the editor controls.
+and excess-PV blocks into the TOU editor. The manual Read button always queries
+EMMA because an inverter controlled by EMMA may report a placeholder schedule
+that is not the active EMMA configuration. FC41 updates refresh the current
+values without discarding pending local edits. Selecting another period
+immediately loads that period's start time, end time, action, and day mask into
+the editor controls.
 
 The Battery-prefixed TOU editor entities are also disabled by default and use
 the `config` entity category. Enable only the controls you intend to use:
@@ -265,6 +268,21 @@ The `Battery TOU Schedule` diagnostic text sensor formats every received period
 in order (for example, `1:Discharge ...; 2:Charge ...`). Very long schedules
 are shortened to fit the Home Assistant text-state limit. `Battery Excess PV
 Behavior` exposes the passive/readback value as a separate diagnostic sensor.
+
+### Raw Modbus test controls
+
+The `ZZ Modbus Test` entities are disabled by default and ordered by their
+numeric name prefix. They provide a device ID (default `12`), function code
+(default read holding registers, `0x03`), start register (default `30000`),
+word count (default `15`), hexadecimal write words, a Send button, and a raw
+hexadecimal response sensor.
+
+Supported functions are `0x03`, `0x04`, `0x06`, and `0x10`. Separate write
+words with spaces, commas, or semicolons; an optional `0x` prefix is accepted.
+FC06 requires exactly one word. FC10 requires the number of words to equal
+Word Count. An empty or invalid Write Request is never transmitted. The
+response sensor remains `No response` if the request is rejected or times out.
+Only one raw or TOU request can be active at a time.
 
 ## Local development
 
@@ -360,9 +378,9 @@ sub-function `0x35` carries control and sensor data.
 
 Huawei EMMA RS485 TLV Decoder normally connects to the same RS485 bus as a
 passive listener. It observes this control traffic and decodes the values into
-Home Assistant sensors without automatic polling. The optional manual TOU
-diagnostic read is the sole transmit path and requires explicit TX hardware
-configuration and a button press.
+Home Assistant sensors without automatic polling. The optional manual TOU and
+raw Modbus controls are the only transmit paths and require explicit TX
+hardware configuration and a button press.
 
 All sensor tags and payload formats supported by this project have been
 reverse-engineered from captured traffic. No public documentation is currently
