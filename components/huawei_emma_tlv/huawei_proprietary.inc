@@ -1002,7 +1002,7 @@ static inline void huawei_modbus_send_diagnostic_request(
 
   hp_modbus_diagnostic_request = {
       true, device_id, function, first_register, register_count,
-      words.empty() ? 0 : words[0]};
+      static_cast<uint16_t>(words.empty() ? 0 : words[0])};
   ESP_LOGI(HUAWEI_MODBUS_TAG,
            "DIAGNOSTIC TX dev=%u fc=0x%02X %s start=0x%04X(%u) count=%u raw=%s",
            device_id, function, hp_modbus_function_name(function), first_register,
