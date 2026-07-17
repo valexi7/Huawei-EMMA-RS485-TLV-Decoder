@@ -96,10 +96,12 @@ script:
     mode: single
     then:
       - lambda: |-
+          const auto function_option =
+              id(modbus_diagnostic_function_code).current_option();
           huawei_modbus_send_diagnostic_request(
               id(huawei_emma_uart),
               static_cast<uint16_t>(id(modbus_diagnostic_device_id).state),
-              id(modbus_diagnostic_function_code).state,
+              std::string(function_option.c_str(), function_option.size()),
               static_cast<uint16_t>(id(modbus_diagnostic_start_register).state),
               static_cast<uint16_t>(id(modbus_diagnostic_word_count).state),
               id(modbus_diagnostic_write_request).state);

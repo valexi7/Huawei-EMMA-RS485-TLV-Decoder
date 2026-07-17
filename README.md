@@ -1,5 +1,32 @@
 # Huawei EMMA RS485 TLV Decoder
 
+## Motivation
+
+When Huawei EMMA is connected to an inverter, it takes control of the system.
+EMMA communicates with the inverter over Modbus, but most of this communication
+does not use the standard Modbus function codes.
+
+Adding a second Modbus master to poll values from the system can work, but the
+additional traffic may eventually overload the bus. This can delay responses
+and potentially disrupt communication between EMMA and the inverter.
+
+Huawei uses the proprietary, user-defined Modbus function code `0x41` for this
+communication. Huawei's documentation describes `0x41` as a file-transfer
+function, which this repository also recognizes, but the protocol carries much
+more than file transfers. Sub-function `0x89` is used for reports, while
+sub-function `0x35` carries control and sensor data.
+
+Huawei EMMA RS485 TLV Decoder normally connects to the same RS485 bus as a
+passive listener. It observes this control traffic and decodes the values into
+Home Assistant sensors without automatic polling. The optional manual TOU and
+raw Modbus controls are the only transmit paths and require explicit TX
+hardware configuration and a button press.
+
+All sensor tags and payload formats supported by this project have been
+reverse-engineered from captured traffic. No public documentation is currently
+available for Huawei's proprietary use of the user-defined function code
+`0x41`.
+
 ESPHome package for passively decoding Huawei EMMA/SUN2000 traffic carried in
 proprietary Modbus function `0x41` frames.
 
@@ -359,30 +386,3 @@ catalogs so those pages stay focused on reverse-engineering unknown fields.
 Their decoded values remain available through entities and frame logs. `Unknown
 FC41 Device Tags` contains traffic from unrecognized device IDs. Unknown tags do
 not create guessed numeric entities.
-
-## Motivation
-
-When Huawei EMMA is connected to an inverter, it takes control of the system.
-EMMA communicates with the inverter over Modbus, but most of this communication
-does not use the standard Modbus function codes.
-
-Adding a second Modbus master to poll values from the system can work, but the
-additional traffic may eventually overload the bus. This can delay responses
-and potentially disrupt communication between EMMA and the inverter.
-
-Huawei uses the proprietary, user-defined Modbus function code `0x41` for this
-communication. Huawei's documentation describes `0x41` as a file-transfer
-function, which this repository also recognizes, but the protocol carries much
-more than file transfers. Sub-function `0x89` is used for reports, while
-sub-function `0x35` carries control and sensor data.
-
-Huawei EMMA RS485 TLV Decoder normally connects to the same RS485 bus as a
-passive listener. It observes this control traffic and decodes the values into
-Home Assistant sensors without automatic polling. The optional manual TOU and
-raw Modbus controls are the only transmit paths and require explicit TX
-hardware configuration and a button press.
-
-All sensor tags and payload formats supported by this project have been
-reverse-engineered from captured traffic. No public documentation is currently
-available for Huawei's proprietary use of the user-defined function code
-`0x41`.

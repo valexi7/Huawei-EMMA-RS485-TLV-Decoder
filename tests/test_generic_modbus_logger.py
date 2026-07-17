@@ -198,6 +198,8 @@ class GenericModbusLoggerTests(unittest.TestCase):
         self.assertIn("initial_value: 15", package)
         self.assertIn('initial_option: "Read Holding Registers (0x03)"', package)
         self.assertIn('initial_value: ""', package)
+        self.assertIn("id(modbus_diagnostic_function_code).current_option()", package)
+        self.assertNotIn("id(modbus_diagnostic_function_code).state", package)
 
         self.assertIn("huawei_modbus_send_diagnostic_request", source)
         self.assertIn("hp_modbus_parse_diagnostic_words", source)
